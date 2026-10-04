@@ -52,6 +52,9 @@ guest code and is redirected into the lifted body.
 - **Muted by default.** The process's own audio session is muted before the
   game starts, which covers Miles, Bink and anything else. If muting fails the
   run stops (fail closed). `--sound` turns it off.
+- **The player's files stay theirs.** KotOR rewrites `swkotor.ini` by itself. Headless runs
+  (and `--private-ini`) redirect it to `work\swkotor.ini`, a fresh copy made at the start of each
+  run, so a test never changes the player's settings and always starts from the same ones.
 - **Headless.** `--headless` keeps the window hidden and prints message boxes.
   OpenGL still renders into the hidden window, and `--record out.mp4` reads each frame
   back with `glReadPixels` before the swap (30 fps, the first frame's size) and pipes it
@@ -62,10 +65,13 @@ guest code and is redirected into the lifted body.
 - **`--original`** (`oracle.c`) runs the unwrapped exe's own code, natively, under the
   same shims. When the lift and the original fail the same way, the cause is the host
   or the environment, not the lift. That's how the DirectInput problem was found.
-- **Scripted input.** `--click x,y@s` posts a move, press and release to the window the game
-  renders into (taken from the `SwapBuffers` DC). The game reads mouse buttons and positions
-  from window messages, so posting works with the window hidden. The clock starts when the
-  main menu music opens, because the intro's length varies with machine load.
-  [testing.md](testing.md) has the new-game script.
+- **Input** (`input.c`). The game takes the mouse from window messages and the keyboard
+  from a buffered DirectInput device. Clicks are posted to the window it renders into (taken
+  from the `SwapBuffers` DC). Keys are appended to what the keyboard device's hooked
+  `GetDeviceData` returns, so both reach the game with the window hidden. Scripts (`--click`,
+  `--key`) and the gamepad ([gamepad.md](gamepad.md)) both go through this. A script's clock
+  starts when the main menu music opens, or, for `a`-times, at the first frame after an area
+  loads, because load times vary with machine load. [testing.md](testing.md) has the
+  new-game script.
 - **Reports.** Fault reports, a watchdog, and a not-lifted stub that names the
   next function to lift.

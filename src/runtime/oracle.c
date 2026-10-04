@@ -108,11 +108,14 @@ static LONG CALLBACK note(EXCEPTION_POINTERS* ep) {
     EXCEPTION_RECORD* r = ep->ExceptionRecord;
     if ((r->ExceptionCode & 0xF0000000u) == 0xC0000000u && InterlockedIncrement(&n) <= 8) {
         CONTEXT* c = ep->ContextRecord;
-        fprintf(stderr, "[original] exception 0x%08lX at %p (%s 0x%08lX) eax=%08lX ecx=%08lX esp=%08lX\n",
+        /* A call through a null pointer faults at 0 with the caller at [esp]. */
+        unsigned long ret = (r->ExceptionAddress == NULL && !IsBadReadPtr((void*)(uintptr_t)c->Esp, 4))
+                            ? *(unsigned long*)(uintptr_t)c->Esp : 0;
+        fprintf(stderr, "[original] exception 0x%08lX at %p (%s 0x%08lX) eax=%08lX ecx=%08lX esp=%08lX [esp]=%08lX\n",
                 r->ExceptionCode, r->ExceptionAddress,
                 r->NumberParameters >= 2 && r->ExceptionInformation[0] == 1 ? "write" : "read",
                 r->NumberParameters >= 2 ? (unsigned long)r->ExceptionInformation[1] : 0,
-                c->Eax, c->Ecx, c->Esp);
+                c->Eax, c->Ecx, c->Esp, ret);
         fflush(stderr);
     }
     return EXCEPTION_CONTINUE_SEARCH;

@@ -17,6 +17,9 @@ endif()
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
+# The C runtime linked in: kotor.exe runs on a machine with no 32-bit VC++
+# redistributable (a fresh test VM failed with STATUS_DLL_NOT_FOUND).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 set(PCRECOMP "${CMAKE_SOURCE_DIR}/../pcrecomp" CACHE PATH "pcrecomp checkout")
 file(GLOB GEN_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/recomp/gen/*.c")
@@ -27,6 +30,7 @@ endif()
 add_executable(kotor
   src/runtime/host.c
   src/runtime/oracle.c
+  src/runtime/input.c
   ${PCRECOMP}/runtime/native32/native32.c
   ${PCRECOMP}/runtime/recomp32/image_loader.c
   ${PCRECOMP}/runtime/recomp32/recomp_trace.c
@@ -44,8 +48,8 @@ target_link_options(kotor PRIVATE /BASE:0x60000000 /FIXED:NO /DYNAMICBASE:NO
                                 /MANIFESTUAC:NO)
 set(GEN_OPT "/O2" CACHE STRING "optimisation for the generated C")
 set_source_files_properties(${GEN_SOURCES} PROPERTIES COMPILE_OPTIONS "/w;${GEN_OPT}")
-set_source_files_properties(src/runtime/host.c src/runtime/oracle.c PROPERTIES COMPILE_OPTIONS "/W3")
-target_link_libraries(kotor PRIVATE user32 gdi32 kernel32 ole32 uuid)
+set_source_files_properties(src/runtime/host.c src/runtime/oracle.c src/runtime/input.c PROPERTIES COMPILE_OPTIONS "/W3")
+target_link_libraries(kotor PRIVATE user32 gdi32 kernel32 ole32 uuid dxguid shlwapi opengl32)
 
 option(KOTOR_TRACE "record a ring buffer of lifted function entries" OFF)
 if(KOTOR_TRACE)

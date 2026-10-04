@@ -6,6 +6,18 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Headless runs tell the game's window it is active and focused (`WM_ACTIVATEAPP`, `WM_SETFOCUS`),
+  as Windows would tell a shown, focused window; the game keys its world input off them.
+- An `ExitProcess` shim prints the code and closes the recording when the game ends itself.
+- Gamepad support (XInput), which KotOR on PC never had. The left stick moves and strafes,
+  the triggers turn the camera, the right stick moves the cursor, and A clicks. B and Start send
+  Escape; X, Y, LB, RB, the D-pad and Back send R, Space, Q, E, 1-4 and Tab: the game's own
+  default keys (`keymap.2da`). It is on when the window is shown and off for `--headless`
+  unless `--gamepad`. `docs/gamepad.md`; `kotor.exe --selftest-input` checks the mapping.
+- Scripted keys: `--key NAME@s[:hold_ms]`. The keyboard device's `GetDeviceData` is hooked,
+  so injected keys reach the game even with its window hidden or unfocused, where DirectInput
+  gives it none. Times may be `a<seconds>`, counted from the first frame after an area loads.
+- `tools/keymap.py`: the game's key bindings, read from `keymap.2da` in your install.
 - A scripted new game reaches the Endar Spire. It runs character generation (Scoundrel, Quick
   Character, portrait, random name, Play), the area load and the opening conversation, all in
   lifted code. The conformance harness runs it: 11/11 milestones.
@@ -20,6 +32,23 @@ versions follow [SemVer](https://semver.org/).
   ffmpeg, so a run shows what it drew with no display.
 
 ### Fixed
+- Test runs no longer change the player's settings. KotOR rewrites `swkotor.ini` by itself, and
+  scripted runs had left it with `Sound Init=0`, `EAX=0` and the movies marked as seen. Headless
+  runs (and `--private-ini`) now read and write `work\swkotor.ini`, a fresh copy of the game's
+  taken at the start of every run, so tests also start from the same settings.
+- `--record` starts at the main menu. It used to fix its frame size on a 640x480 intro movie
+  and crop everything after it.
+- Injected keys reach the game in the area as well as in the menus. The game creates a second
+  keyboard device when an area loads; keys now go to whichever keyboard device reads next.
+- A machine with no audio device runs (silent by construction) instead of stopping because the
+  mute could not be applied. Any other mute failure still stops the run.
+- `wglSwapIntervalEXT` gets a no-op stand-in when the driver has none. The game calls it unchecked
+  (0x0044E381), so under Windows' generic OpenGL 1.1 it called address 0. The host prints the GL
+  vendor, renderer and version when the game's context becomes current.
+- `--record` started on every frame check again after 24.8 days of Windows uptime: the frame
+  pacing compared a signed `GetTickCount()` against 0.
+- `kotor.exe` links the C runtime statically; a machine with no 32-bit VC++ redistributable
+  could not start it (STATUS_DLL_NOT_FOUND).
 - The script VM no longer corrupts esi on its first engine command. The command table is filled
   by 7 KB of straight-line code that disasm32 cut at 4 KB, so 142 command functions were missing
   from the catalog and their dispatches came back without popping their arguments. Fixed in

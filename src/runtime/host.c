@@ -20,10 +20,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <shlwapi.h>
 
 #include "native32.h"
 #include "recomp_trace.h"
 #include "oracle.h"
+#include "input.h"
 
 extern const uint32_t kotor_entry_va;  /* recomp_dispatch.c */
 
@@ -34,6 +36,7 @@ static DWORD g_watchdog_s;
 static int   g_modeswitch;   /* --modeswitch: let ChangeDisplaySettingsA through */
 static int   g_gamma;        /* --gamma: let SetDeviceGammaRamp through */
 static int   g_original;     /* --original: the shipping machine code (oracle.c) */
+static int   g_private_ini_opt;   /* --private-ini: as headless does */
 
 /* ---- calls that reach outside the window -----------------------------------
  * ChangeDisplaySettingsA changes the mode of the primary display, not of the
@@ -98,7 +101,8 @@ static void shim_GetCommandLineA(void) {
  * Pass-through; a run is muted at the session, not here. */
 typedef uint32_t (WINAPI *ail_open_stream_t)(uint32_t, const char*, int32_t);
 typedef uint32_t (WINAPI *bink_open_t)(const char*, uint32_t);
-static HANDLE g_menu_up;                 /* set when the menu music opens: --click's clock */
+static const char* g_record;              /* --record out.mp4 */
+static volatile int g_record_armed;       /* set when the main menu appears */
 
 static void shim_AIL_open_stream(void) {
     static ail_open_stream_t real;
@@ -106,7 +110,8 @@ static void shim_AIL_open_stream(void) {
     const char* name = (const char*)(uintptr_t)ARG(1);
     g_eax = real(ARG(0), name, (int32_t)ARG(2));
     printf("[host] stream %s -> %s\n", name ? name : "(null)", g_eax ? "open" : "FAILED");
-    if (g_eax && g_menu_up) SetEvent(g_menu_up);
+    if (g_eax) input_menu_up();           /* the script's clock starts at the menu */
+    if (g_eax) g_record_armed = 1;        /* recording starts at the menu, not on a 640x480 movie */
     g_esp += 4 + 3 * 4;
 }
 
@@ -117,15 +122,29 @@ static void shim_AIL_open_stream(void) {
  * opened once at startup. */
 static volatile LONG g_module_opened;
 
+/* swkotor.ini: the game rewrites it when it exits or when a setting changes,
+ * and test runs had turned the player's sound off in it (Sound Init=0) and
+ * marked the movies seen. Headless runs (and --private-ini) read and write a
+ * fresh copy, work\swkotor.ini, taken from the game's at start, so every test
+ * starts from the same settings and the player's file is never touched. */
+static char g_private_ini[MAX_PATH];
+
+static const char* redirect_ini(const char* name) {
+    const char* base = name ? strrchr(name, '\\') : NULL;
+    base = base ? base + 1 : name;
+    if (!g_private_ini[0] || !base || _stricmp(base, "swkotor.ini")) return name;
+    return g_private_ini;
+}
+
 static void shim_CreateFileA(void) {
-    const char* name = (const char*)(uintptr_t)ARG(0);
+    const char* name = redirect_ini((const char*)(uintptr_t)ARG(0));
     g_eax = (uint32_t)(uintptr_t)CreateFileA(name, ARG(1), ARG(2), (LPSECURITY_ATTRIBUTES)(uintptr_t)ARG(3),
                                              ARG(4), ARG(5), (HANDLE)(uintptr_t)ARG(6));
     size_t n = name ? strlen(name) : 0;
     if (n > 4 && (!_stricmp(name + n - 4, ".rim") || !_stricmp(name + n - 4, ".mod"))) {
         int ok = g_eax != (uint32_t)(uintptr_t)INVALID_HANDLE_VALUE;
         printf("[host] module %s -> %s\n", name, ok ? "open" : "missing");
-        if (ok) InterlockedExchange(&g_module_opened, 1);
+        if (ok) InterlockedExchange(&g_module_opened, StrStrIA(name, "modules\\") ? 2 : 1);   /* 2: an area */
     }
     g_esp += 4 + 7 * 4;
 }
@@ -137,53 +156,6 @@ static void shim_BinkOpen(void) {
     g_eax = real(name, ARG(1));
     printf("[host] movie %s -> %s\n", name ? name : "(null)", g_eax ? "open" : "FAILED");
     g_esp += 4 + 2 * 4;
-}
-
-/* ---- scripted input ---------------------------------------------------------
- * --click x,y@s: s seconds after the main menu appears (its music stream
- * opens, shim_AIL_open_stream), move, press and release the left button at
- * client (x, y), top-left origin, the coordinates of a --record frame. Timed
- * from the menu, not from entry: how long the intro takes varies by a factor
- * of three between runs, and clicks timed from entry landed on the wrong
- * screens. The game takes mouse buttons and positions from window messages
- * (its window procedure, around 0x00403000, flips y with the window height),
- * so posting them reaches it even with the window hidden. They go to the
- * window it renders into, taken from the SwapBuffers DC. */
-#define MAX_CLICKS 32
-static struct { int x, y; DWORD ms; } g_clicks[MAX_CLICKS];
-static int g_nclicks;
-static volatile HWND g_render_hwnd;
-static DWORD g_t0;
-
-static DWORD WINAPI input_script(LPVOID unused) {
-    (void)unused;
-    WaitForSingleObject(g_menu_up, INFINITE);
-    g_t0 = GetTickCount();
-    printf("[input] main menu up, script starts\n");
-    for (int i = 0; i < g_nclicks; i++) {
-        DWORD now = GetTickCount() - g_t0;
-        if (g_clicks[i].ms > now) Sleep(g_clicks[i].ms - now);
-        HWND h = g_render_hwnd;
-        LPARAM at = MAKELPARAM(g_clicks[i].x, g_clicks[i].y);
-        printf("[input] click %d,%d at %.1f s -> %p\n", g_clicks[i].x, g_clicks[i].y,
-               (GetTickCount() - g_t0) / 1000.0, (void*)h);
-        fflush(stdout);
-        if (!h) continue;
-        PostMessageA(h, WM_MOUSEMOVE, 0, at);
-        Sleep(100);
-        PostMessageA(h, WM_LBUTTONDOWN, MK_LBUTTON, at);
-        Sleep(100);
-        PostMessageA(h, WM_LBUTTONUP, 0, at);
-    }
-    return 0;
-}
-
-static int click_arg(const char* a) {
-    double s;
-    if (g_nclicks >= MAX_CLICKS ||
-        sscanf(a, "%d,%d@%lf", &g_clicks[g_nclicks].x, &g_clicks[g_nclicks].y, &s) != 3) return 0;
-    g_clicks[g_nclicks++].ms = (DWORD)(s * 1000);
-    return 1;
 }
 
 /* DirectInput8Create checks that its HINSTANCE is a module Windows loaded, and
@@ -200,6 +172,7 @@ static void shim_DirectInput8Create(void) {
     g_eax = (uint32_t)real(h, ARG(1), (REFIID)(uintptr_t)ARG(2), (LPVOID*)(uintptr_t)ARG(3),
                            (LPUNKNOWN)(uintptr_t)ARG(4));
     printf("[host] DirectInput8Create -> 0x%08X\n", g_eax);
+    if (g_eax == 0 && ARG(3)) input_on_directinput(*(void**)(uintptr_t)ARG(3));   /* the keyboard hook */
     g_esp += 4 + 5 * 4;
 }
 
@@ -243,13 +216,13 @@ static void shim_MessageBoxA(void) {
 
 /* --record out.mp4: the back buffer, read with glReadPixels just before each
  * swap and piped to ffmpeg, so a run shows what it drew with no display at all
- * (REPO_RULES section 10/13). Sampled at 30 fps; the size is fixed by the
- * first frame, and a frame of another size (the movie window) is skipped.
+ * (REPO_RULES section 10/13). Sampled at 30 fps from the main menu on (the
+ * intro movies are 640x480 and would fix the size); the size is fixed by the
+ * first frame, and a frame of another size is skipped.
  * ponytail: a frame at another size is dropped, not scaled; scale it if the
  * movies need recording. */
 #define GL_BGRA_EXT 0x80E1
 #define GL_BACK_BUF 0x0405
-static const char* g_record;
 static FILE* g_rec_pipe;
 static int g_rec_w, g_rec_h;
 static uint8_t* g_rec_buf;
@@ -262,7 +235,9 @@ static void record_frame(HDC dc) {
     static read_buffer_t read_buffer;
     RECT rc;
     DWORD now = GetTickCount();
-    if ((int)(now - g_rec_next) < 0 || !GetClientRect(WindowFromDC(dc), &rc)) return;
+    /* g_rec_next 0 is "not started": (int)GetTickCount() is negative after 24.8 days
+     * of uptime, and comparing against 0 then skipped every frame. */
+    if ((g_rec_next && (int)(now - g_rec_next) < 0) || !GetClientRect(WindowFromDC(dc), &rc)) return;
     g_rec_next = now + 33;
     int w = rc.right & ~1, h = rc.bottom & ~1;        /* yuv420p wants even sizes */
     if (w <= 0 || h <= 0) return;
@@ -290,14 +265,61 @@ static void record_close(void) {
     if (g_rec_pipe) { _pclose(g_rec_pipe); g_rec_pipe = NULL; }
 }
 
+/* The game ends itself with ExitProcess, which skips everything the host would
+ * do on the way out: the code is printed, stdout flushed, the recording closed. */
+static void shim_ExitProcess(void) {
+    UINT code = ARG(0);
+    printf("[host] ExitProcess(%u) from sub_%08X\n", code, g_cur_func);
+    fflush(stdout);
+    record_close();
+    ExitProcess(code);
+}
+
+/* The GL the game got, once: a run on a machine without the vendor's driver gets
+ * Windows' generic 1.1 renderer, and that explains most of what happens next. */
+static void print_gl(void) {
+    typedef const char* (WINAPI *get_string_t)(unsigned);
+    get_string_t gs = (get_string_t)GetProcAddress(GetModuleHandleA("opengl32.dll"), "glGetString");
+    if (gs) printf("[host] GL: %s / %s / %s\n", gs(0x1F00), gs(0x1F01), gs(0x1F02));   /* vendor, renderer, version */
+    fflush(stdout);                       /* a crash right after must not lose it */
+}
+
+/* wglGetProcAddress: the game calls wglSwapIntervalEXT through what this
+ * returns without checking it (0x0044E381, with V-Sync), so a driver without
+ * the extension (the generic renderer on a GPU-less session) sent it to 0.
+ * Missing swap-interval entry points get no-op stand-ins; everything else is
+ * passed through, null included. */
+static BOOL WINAPI no_swap_interval(int n) { (void)n; return TRUE; }
+static int WINAPI no_get_swap_interval(void) { return 1; }
+
+static void shim_wglGetProcAddress(void) {
+    typedef PROC (WINAPI *gpa_t)(LPCSTR);
+    static gpa_t real;
+    if (!real) real = (gpa_t)GetProcAddress(GetModuleHandleA("opengl32.dll"), "wglGetProcAddress");
+    const char* name = (const char*)(uintptr_t)ARG(0);
+    PROC p = real(name);
+    if (!p && name && !strcmp(name, "wglSwapIntervalEXT")) p = (PROC)no_swap_interval;
+    if (!p && name && !strcmp(name, "wglGetSwapIntervalEXT")) p = (PROC)no_get_swap_interval;
+    g_eax = (uint32_t)(uintptr_t)p;
+    g_esp += 4 + 1 * 4;
+}
+
+static void shim_wglMakeCurrent(void) {
+    static LONG printed;
+    g_eax = wglMakeCurrent((HDC)(uintptr_t)ARG(0), (HGLRC)(uintptr_t)ARG(1));
+    if (g_eax && ARG(1) && !InterlockedExchange(&printed, 1)) print_gl();
+    g_esp += 4 + 2 * 4;
+}
+
 static void shim_SwapBuffers(void) {
     LONG n = InterlockedIncrement(&g_frames);
     if (n == 1 || n == 60 || n % 1000 == 0) printf("[host] frame %ld presented\n", n);
-    if (InterlockedExchange(&g_module_opened, 0)) printf("[host] frame %ld presented after a module load\n", n);
+    LONG mod = InterlockedExchange(&g_module_opened, 0);
+    if (mod) printf("[host] frame %ld presented after a module load\n", n);
+    if (mod == 2) input_area_up();
     HDC dc = (HDC)(uintptr_t)ARG(0);
-    HWND rw = WindowFromDC(dc);           /* every frame: the game recreates its window */
-    if (rw) g_render_hwnd = rw;
-    if (g_record) record_frame(dc);
+    input_on_frame(WindowFromDC(dc));     /* every frame: the game recreates its window */
+    if (g_record && g_record_armed) record_frame(dc);
     g_eax = SwapBuffers(dc);
     g_esp += 4 + 1 * 4;
 }
@@ -307,6 +329,9 @@ static native32_shim_t g_shims[] = {
     { "ShowWindow", shim_ShowWindow },
     { "MessageBoxA", shim_MessageBoxA },
     { "SwapBuffers", shim_SwapBuffers },
+    { "wglGetProcAddress", shim_wglGetProcAddress },
+    { "wglMakeCurrent", shim_wglMakeCurrent },
+    { "ExitProcess", shim_ExitProcess },
     { "ChangeDisplaySettingsA", shim_ChangeDisplaySettingsA },
     { "SetDeviceGammaRamp", shim_SetDeviceGammaRamp },
     { "GetModuleHandleA", shim_GetModuleHandleA },
@@ -330,6 +355,7 @@ static const GUID kIID_IMMDeviceEnumerator =
 static const GUID kIID_IAudioSessionManager =
     { 0xBFA971F1, 0x4D5E, 0x40BB, { 0x93, 0x5E, 0x96, 0x70, 0x39, 0xBF, 0xBE, 0xE4 } };
 
+/* 1: muted; 2: there is no audio device; 0: failed. */
 static int mute_process(void) {
     IMMDeviceEnumerator* en = NULL;
     IMMDevice* dev = NULL;
@@ -338,6 +364,9 @@ static int mute_process(void) {
     HRESULT hr = CoCreateInstance(&kCLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL,
                                   &kIID_IMMDeviceEnumerator, (void**)&en);
     if (SUCCEEDED(hr)) hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(en, eRender, eConsole, &dev);
+    /* No output device at all (a test VM): nothing can be heard, which is what
+     * muting is for. Any other failure still stops the run. */
+    if (hr == HRESULT_FROM_WIN32(ERROR_NOT_FOUND)) { IMMDeviceEnumerator_Release(en); return 2; }
     if (SUCCEEDED(hr)) hr = IMMDevice_Activate(dev, &kIID_IAudioSessionManager, CLSCTX_ALL, NULL, (void**)&mgr);
     if (SUCCEEDED(hr)) hr = IAudioSessionManager_GetSimpleAudioVolume(mgr, &GUID_NULL, FALSE, &vol);
     if (SUCCEEDED(hr)) hr = ISimpleAudioVolume_SetMute(vol, TRUE, NULL);
@@ -346,6 +375,18 @@ static int mute_process(void) {
     if (dev) IMMDevice_Release(dev);
     if (en) IMMDeviceEnumerator_Release(en);
     return SUCCEEDED(hr);
+}
+
+/* Muted unless --sound; 0 when it could not be made silent and the run must stop. */
+static int audio_setup(int sound) {
+    int m = sound ? 1 : mute_process();
+    if (!m) {
+        fprintf(stderr, "cannot mute the process audio session; pass --sound to run with sound\n");
+        return 0;
+    }
+    printf("  audio: %s\n", sound ? "on (--sound)" : m == 2 ? "muted (no audio device)"
+                                                    : "muted (--sound to hear it)");
+    return 1;
 }
 
 /* ---- reports ---------------------------------------------------------------- */
@@ -427,8 +468,10 @@ int main(int argc, char** argv) {
     const char* game = "game";
     char exe_full[MAX_PATH], game_full[MAX_PATH];
     int run = 0, sound = 0;
+    if (argc == 2 && !strcmp(argv[1], "--selftest-input")) return input_selftest();
     for (int i = 1; i < argc; i++) {
         int n = recomp_trace_arg(argc, argv, i);
+        if (!n) n = input_arg(argc, argv, i);
         if (n) { i += n - 1; continue; }
         if (!strcmp(argv[i], "--run")) run = 1;
         else if (!strcmp(argv[i], "--sound")) sound = 1;
@@ -436,7 +479,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--modeswitch")) g_modeswitch = 1;
         else if (!strcmp(argv[i], "--gamma")) g_gamma = 1;
         else if (!strcmp(argv[i], "--original")) g_original = 1;
-        else if (!strcmp(argv[i], "--click") && i + 1 < argc && click_arg(argv[i + 1])) i++;
+        else if (!strcmp(argv[i], "--private-ini")) g_private_ini_opt = 1;
         else if (!strcmp(argv[i], "--record") && i + 1 < argc) {
             static char rec_full[MAX_PATH];     /* the run chdirs into game\ */
             GetFullPathNameA(argv[++i], MAX_PATH, rec_full, NULL);
@@ -448,14 +491,26 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--native-trace")) native32_trace_native = 1;
         else if (!strcmp(argv[i], "--callbacks")) native32_trace_callbacks = 1;
         else {
-            printf("usage: kotor [--run] [--headless] [--sound] [--modeswitch] [--gamma] [--original] [--record out.mp4] [--click x,y@s]... [--exe work\\swkotor.exe] [--game game]\n"
+            printf("usage: kotor [--run] [--headless] [--sound] [--modeswitch] [--gamma] [--original] [--private-ini] [--record out.mp4] [--exe work\\swkotor.exe] [--game game]\n"
                    "             [--watchdog S] [--native-trace] [--callbacks]\n");
+            input_help();
             recomp_trace_help();
             return argv[i][1] == 'h' || argv[i][2] == 'h' ? 0 : 1;
         }
     }
     GetFullPathNameA(exe, MAX_PATH, exe_full, NULL);
     GetFullPathNameA(game, MAX_PATH, game_full, NULL);
+    if (g_headless || g_private_ini_opt) {      /* before the run chdirs into game\ */
+        char src[MAX_PATH];
+        CreateDirectoryA("work", NULL);
+        GetFullPathNameA("work\\swkotor.ini", MAX_PATH, g_private_ini, NULL);
+        _snprintf(src, sizeof src - 1, "%s\\swkotor.ini", game_full);
+        if (!CopyFileA(src, g_private_ini, FALSE)) {
+            fprintf(stderr, "cannot copy %s to %s\n", src, g_private_ini);
+            return 1;
+        }
+        printf("  swkotor.ini: a fresh copy at %s\n", g_private_ini);
+    }
     _snprintf(g_guest_exe, sizeof g_guest_exe - 1, "%s\\swkotor.exe", game_full);
     _snprintf(g_guest_cmdline, sizeof g_guest_cmdline - 1, "\"%s\"", g_guest_exe);
     /* mss32.dll and binkw32.dll ship in the game folder; imports bind from there. */
@@ -465,17 +520,9 @@ int main(int argc, char** argv) {
         /* The same shims, mute, folder and watchdog around the original code. */
         if (!SetCurrentDirectoryA(game_full)) { fprintf(stderr, "cannot enter %s\n", game_full); return 1; }
         CoInitialize(NULL);
-        if (!sound && !mute_process()) {
-            fprintf(stderr, "cannot mute the process audio session; pass --sound to run with sound\n");
-            return 1;
-        }
-        printf("  audio: %s\n", sound ? "on (--sound)" : "muted (--sound to hear it)");
+        if (!audio_setup(sound)) return 1;
         if (g_watchdog_s) CloseHandle(CreateThread(NULL, 0, watchdog, NULL, 0, NULL));
-        g_t0 = GetTickCount();
-        if (g_nclicks) {
-            g_menu_up = CreateEventA(NULL, TRUE, FALSE, NULL);
-            CloseHandle(CreateThread(NULL, 0, input_script, NULL, 0, NULL));
-        }
+        input_start(g_headless);
         return oracle_run(exe_full, KOTOR_IMAGE_BASE, g_shims, (int)(sizeof g_shims / sizeof g_shims[0]), NULL, 0);
     }
 
@@ -497,17 +544,9 @@ int main(int argc, char** argv) {
      * working directory. */
     if (!SetCurrentDirectoryA(game_full)) { fprintf(stderr, "cannot enter %s\n", game_full); return 1; }
     CoInitialize(NULL);                 /* the game's own CoInitialize then answers S_FALSE */
-    if (!sound && !mute_process()) {    /* fail closed: a run is silent or it does not start */
-        fprintf(stderr, "cannot mute the process audio session; pass --sound to run with sound\n");
-        return 1;
-    }
-    printf("  audio: %s\n", sound ? "on (--sound)" : "muted (--sound to hear it)");
+    if (!audio_setup(sound)) return 1;  /* fail closed: a run is silent or it does not start */
     if (g_watchdog_s) CloseHandle(CreateThread(NULL, 0, watchdog, NULL, 0, NULL));
-    g_t0 = GetTickCount();
-    if (g_nclicks) {
-        g_menu_up = CreateEventA(NULL, TRUE, FALSE, NULL);
-        CloseHandle(CreateThread(NULL, 0, input_script, NULL, 0, NULL));
-    }
+    input_start(g_headless);
     printf("  entering 0x%08X\n\n", kotor_entry_va);
     fflush(stdout);
     native32_call_guest(kotor_entry_va, 0, NULL);

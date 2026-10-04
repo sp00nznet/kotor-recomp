@@ -66,8 +66,38 @@ build\kotor.exe --run --headless --watchdog 120 --record out.mp4 --click 488,293
 ffmpeg -i out.mp4 -vf "fps=1/3,scale=200:-1,tile=8x4" -frames:v 1 sheet.png
 ```
 
+## Keys
+
+`--key NAME@s[:hold_ms]` presses a key (100 ms unless a hold is given); names are A-Z, 0-9,
+F1-F10, SPACE, ESC, TAB, ENTER, LSHIFT, LCTRL, DELETE and the arrows. A time written `a<s>`
+counts from the first frame drawn after an area (`modules\*.rim`) loads, for keys meant for the
+game rather than its menus. The keys reach the game through a hook on the DirectInput keyboard
+device, so they work with the window hidden. The game's bindings are in `keymap.2da`:
+
+```
+py -3 tools\keymap.py game
+```
+
+`kotor.exe --selftest-input` checks the gamepad mapping and the `--key`/`--click` parser.
+
+## In the game
+
+Past Play, a script answers Trask with the dialogue keys and clears the tutorial popups.
+These run on the area clock (`a` times), and the area takes 1-3 minutes to load on a
+busy machine, so they are spaced generously:
+
+```
+--key 1@a60 --key 1@a66 ... --key 1@a240   reply 1 to every line of the opening conversation
+--click 400,377@a250                       OK on "The ACTIVE QUESTS screen..."
+--click 400,315@a256                       OK on "Journal Entry Added"
+```
+
+That ends in Trask's next tutorial conversation, about the footlocker
+(`docs/screenshots/in-game-hud.png` is the scene just before it). Walking with W is the next
+step to script: the tutorial keeps the player in conversation until it is answered.
+
 ## Known gaps
 
+- Free movement (W/A/S/D) after the tutorial conversations is not scripted or checked yet.
 - Under `--original`, the shipping code does not react to the posted clicks, so scripted runs
   can't be compared with it yet (ROADMAP).
-- Keyboard input goes through DirectInput, not window messages; the script has no keys yet.
