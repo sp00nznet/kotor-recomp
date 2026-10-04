@@ -87,7 +87,7 @@ build\kotor.exe --run                 # run (muted)
 build\kotor.exe --run --headless --watchdog 60   # hidden window, stop after 60 s
 build\kotor.exe --run --sound         # with sound
 py -3 tools\conformance.py            # boot milestones + lift health vs. conformance.json
-py -3 toolsnformance.py --host D:kotor.exe   # a host built elsewhere
+py -3 tools\conformance.py --host D:\kotor.exe   # a host built elsewhere
 ```
 
 `--modeswitch` and `--gamma` let the game change the display mode and gamma ramp. Both are
