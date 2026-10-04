@@ -14,27 +14,31 @@ like reone or xoreos: it runs BioWare's own code, recompiled.
 pipeline unwraps, lifts and builds it locally, and everything it generates stays in
 gitignored folders (`work/`, `src/recomp/gen/`). Nothing from the game is in this repo.
 
-## Status: **v0.1.0-dev, alpha — the recompiled game reaches the main menu.**
+## Status: **v0.1.0-dev, alpha — a new game reaches the Endar Spire, in the recompiled code.**
 
 | Stage | State |
 |---|---|
 | P0: pick the build | Steam `swkotor.exe` 1.03 (2004-02-12), SteamStub 2.x wrapped ([RECON.md](docs/RECON.md)) |
 | Reference run | `--original` runs the unwrapped exe's own machine code under the same host and shims, for comparison |
-| Headless mode | `--headless --record out.mp4`: hidden window, frames read back from GL and piped to ffmpeg |
+| Headless mode | `--headless --record out.mp4`: hidden window, frames read back from GL and piped to ffmpeg; `--click x,y@s` drives the menus |
 | Steam wrapper | removed statically by pcrecomp `drm/steamstub.py` (#46): no Steam, under a second |
 | RTTI | none (built without it); `vtable_scan` finds 233 vtables, 1,852 methods |
-| Function catalog (`disasm32`) | 29,418 functions, 95.9% of `.text`, no IDA |
-| Lift (`run_lift.py --all`) | 29,488 functions, 4.2M lines of C, **0 lift errors** |
-| Host (`build/kotor.exe`, 32-bit, pcrecomp `native32`) | builds with MSVC or clang-cl. All 350 imports bind (340 native, 10 shimmed). Boots through the intro movies to the **main menu**, rendered by the lifted code (about 115 fps, uncapped as in the original) |
-| Conformance harness | `tools/conformance.py`: **6/6** boot milestones (mapped, muted, entered, window, first frame, 60 frames), lift 0 errors, against `conformance.json`; fails on regression |
+| Function catalog (`disasm32`) | 29,548 functions, 96.6% of `.text`, no IDA (needs pcrecomp #50: the script-command table setup is 7 KB of straight-line code) |
+| Lift (`run_lift.py --all`) | 29,617 functions, 4.2M lines of C, **0 lift errors** |
+| Host (`build/kotor.exe`, 32-bit, pcrecomp `native32`) | builds with MSVC or clang-cl. Boots through the intro movies to the main menu, then a scripted new game: character generation, the Endar Spire load and the opening conversation, all in lifted code |
+| Conformance harness | `tools/conformance.py`: **11/11** milestones, from boot to the opening conversation on the Endar Spire, lift 0 errors, against `conformance.json`; fails on regression ([testing.md](docs/testing.md)) |
 
 Runs are **muted by default** until sound has been tested (`--sound` unmutes).
 
 ## Screenshots
 
-The main menu, drawn by the recompiled code (`--headless --record`, muted):
+Frames drawn by the recompiled code (`--headless --record`, muted). The main menu:
 
 ![KotOR main menu, recompiled](docs/screenshots/main-menu.png)
+
+The Endar Spire after a scripted new game, the opening cutscene:
+
+![The Endar Spire, recompiled](docs/screenshots/endar-spire.png)
 
 ## Getting Started
 
@@ -92,6 +96,7 @@ build\kotor.exe --run --headless --watchdog 60   # hidden window, stop after 60 
 build\kotor.exe --run --sound         # with sound
 build\kotor.exe --run --headless --record out.mp4 --watchdog 60   # no window: record what it draws
 build\kotor.exe --run --original      # the shipping machine code under the same host, for comparison
+build\kotor.exe --run --headless --click 488,293@3   # click New Game 3 s after the main menu appears
 py -3 tools\conformance.py            # boot milestones + lift health vs. conformance.json
 py -3 tools\conformance.py --host D:\kotor.exe   # a host built elsewhere
 ```
@@ -113,6 +118,7 @@ another toolkit checkout; the default is `..\pcrecomp`.
 - [docs/RECON.md](docs/RECON.md): the binary, the Steam wrapper layer by layer, the game
   data, community material and its licences, the engine fix list.
 - [docs/architecture.md](docs/architecture.md): the pipeline and the host.
+- [docs/testing.md](docs/testing.md): the conformance harness, its milestones and the new-game click script.
 
 ## License
 

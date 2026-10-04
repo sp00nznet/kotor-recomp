@@ -62,5 +62,10 @@ guest code and is redirected into the lifted body.
 - **`--original`** (`oracle.c`) runs the unwrapped exe's own code, natively, under the
   same shims. When the lift and the original fail the same way, the cause is the host
   or the environment, not the lift. That's how the DirectInput problem was found.
+- **Scripted input.** `--click x,y@s` posts a move, press and release to the window the game
+  renders into (taken from the `SwapBuffers` DC). The game reads mouse buttons and positions
+  from window messages, so posting works with the window hidden. The clock starts when the
+  main menu music opens, because the intro's length varies with machine load.
+  [testing.md](testing.md) has the new-game script.
 - **Reports.** Fault reports, a watchdog, and a not-lifted stub that names the
   next function to lift.

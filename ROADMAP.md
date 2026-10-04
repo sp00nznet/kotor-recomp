@@ -4,13 +4,14 @@
 
 In order; each is done when its check is in the conformance harness or the docs.
 
-1. **A new game started** and the Endar Spire loaded, from scripted input on the
-   main menu (the menu itself is reached: README).
-2. **The visible window.** Headless runs reach the menu, but with a shown window the
-   lifted run stalls in window creation (0x004053E0, the window procedure called over
-   and over) while the original does not. Find what differs.
-3. **A main-menu milestone** in the harness, matched on a recorded frame or the game's
-   own log rather than a frame count.
+1. **Play on the Endar Spire.** Keyboard input through DirectInput: wrap the keyboard
+   device so a script can send keys. Then walk out of the crew quarters with Trask and
+   reach the first fight.
+2. **The oracle takes scripted input.** Under `--original` the shipping code ignores
+   the posted clicks; until it doesn't, a scripted run can't be compared with it.
+3. **The visible window.** Headless runs play, but with a shown window the lifted run
+   stalls in window creation (0x004053E0, the window procedure called over and over)
+   while the original does not. Find what differs.
 4. **Sound tests.** Every run is muted until then (`--sound` unmutes).
 5. **Move oracle.c into pcrecomp's native32**: civ3, Red Alert 2 and KotOR each carry
    a copy.

@@ -6,6 +6,13 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- A scripted new game reaches the Endar Spire. It runs character generation (Scoundrel, Quick
+  Character, portrait, random name, Play), the area load and the opening conversation, all in
+  lifted code. The conformance harness runs it: 11/11 milestones.
+- `--click x,y@s`: a move, press and release posted to the game's window, timed from the main
+  menu (its music opening), not from process start.
+- Milestone lines for the game's own media and area loads: Bink movies, Miles streams, module
+  archives, and the first frame after a module opens. Documented in `docs/testing.md`.
 - The recompiled game boots through the intro movies to the main menu (6/6 boot milestones).
 - `--original`: the unwrapped exe's own machine code under the same host and shims, the
   reference a lifted run is compared against (oracle.c, from Red Alert 2's host).
@@ -13,6 +20,10 @@ versions follow [SemVer](https://semver.org/).
   ffmpeg, so a run shows what it drew with no display.
 
 ### Fixed
+- The script VM no longer corrupts esi on its first engine command. The command table is filled
+  by 7 KB of straight-line code that disasm32 cut at 4 KB, so 142 command functions were missing
+  from the catalog and their dispatches came back without popping their arguments. Fixed in
+  disasm32 (pcrecomp #50); the catalog is now 29,548 functions.
 - DirectInput is created. `DirectInput8Create` refuses an HINSTANCE Windows didn't load, and
   the game passes the guest image's base. With no input object, its input manager read through
   null at 0x005E2F93 and 0x005E4053, in both the lift and the original. The host's instance

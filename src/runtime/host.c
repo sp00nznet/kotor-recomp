@@ -93,6 +93,99 @@ static void shim_GetCommandLineA(void) {
     g_esp += 4;
 }
 
+/* The game's own media opens, logged as milestones (tools/conformance.py):
+ * each intro movie through Bink, then the main menu's music as a Miles stream.
+ * Pass-through; a run is muted at the session, not here. */
+typedef uint32_t (WINAPI *ail_open_stream_t)(uint32_t, const char*, int32_t);
+typedef uint32_t (WINAPI *bink_open_t)(const char*, uint32_t);
+static HANDLE g_menu_up;                 /* set when the menu music opens: --click's clock */
+
+static void shim_AIL_open_stream(void) {
+    static ail_open_stream_t real;
+    if (!real) real = (ail_open_stream_t)GetProcAddress(GetModuleHandleA("mss32.dll"), "_AIL_open_stream@12");
+    const char* name = (const char*)(uintptr_t)ARG(1);
+    g_eax = real(ARG(0), name, (int32_t)ARG(2));
+    printf("[host] stream %s -> %s\n", name ? name : "(null)", g_eax ? "open" : "FAILED");
+    if (g_eax && g_menu_up) SetEvent(g_menu_up);
+    g_esp += 4 + 3 * 4;
+}
+
+/* Module archives (modules\*.rim, *.mod) are opened when an area loads: the
+ * Endar Spire's are the milestone after a new game, and the first frame drawn
+ * after one is logged too (shim_SwapBuffers). Every other open passes through
+ * unlogged; the bulk of the game's reads go through handles to the BIFs it
+ * opened once at startup. */
+static volatile LONG g_module_opened;
+
+static void shim_CreateFileA(void) {
+    const char* name = (const char*)(uintptr_t)ARG(0);
+    g_eax = (uint32_t)(uintptr_t)CreateFileA(name, ARG(1), ARG(2), (LPSECURITY_ATTRIBUTES)(uintptr_t)ARG(3),
+                                             ARG(4), ARG(5), (HANDLE)(uintptr_t)ARG(6));
+    size_t n = name ? strlen(name) : 0;
+    if (n > 4 && (!_stricmp(name + n - 4, ".rim") || !_stricmp(name + n - 4, ".mod"))) {
+        int ok = g_eax != (uint32_t)(uintptr_t)INVALID_HANDLE_VALUE;
+        printf("[host] module %s -> %s\n", name, ok ? "open" : "missing");
+        if (ok) InterlockedExchange(&g_module_opened, 1);
+    }
+    g_esp += 4 + 7 * 4;
+}
+
+static void shim_BinkOpen(void) {
+    static bink_open_t real;
+    if (!real) real = (bink_open_t)GetProcAddress(GetModuleHandleA("binkw32.dll"), "_BinkOpen@8");
+    const char* name = (const char*)(uintptr_t)ARG(0);
+    g_eax = real(name, ARG(1));
+    printf("[host] movie %s -> %s\n", name ? name : "(null)", g_eax ? "open" : "FAILED");
+    g_esp += 4 + 2 * 4;
+}
+
+/* ---- scripted input ---------------------------------------------------------
+ * --click x,y@s: s seconds after the main menu appears (its music stream
+ * opens, shim_AIL_open_stream), move, press and release the left button at
+ * client (x, y), top-left origin, the coordinates of a --record frame. Timed
+ * from the menu, not from entry: how long the intro takes varies by a factor
+ * of three between runs, and clicks timed from entry landed on the wrong
+ * screens. The game takes mouse buttons and positions from window messages
+ * (its window procedure, around 0x00403000, flips y with the window height),
+ * so posting them reaches it even with the window hidden. They go to the
+ * window it renders into, taken from the SwapBuffers DC. */
+#define MAX_CLICKS 32
+static struct { int x, y; DWORD ms; } g_clicks[MAX_CLICKS];
+static int g_nclicks;
+static volatile HWND g_render_hwnd;
+static DWORD g_t0;
+
+static DWORD WINAPI input_script(LPVOID unused) {
+    (void)unused;
+    WaitForSingleObject(g_menu_up, INFINITE);
+    g_t0 = GetTickCount();
+    printf("[input] main menu up, script starts\n");
+    for (int i = 0; i < g_nclicks; i++) {
+        DWORD now = GetTickCount() - g_t0;
+        if (g_clicks[i].ms > now) Sleep(g_clicks[i].ms - now);
+        HWND h = g_render_hwnd;
+        LPARAM at = MAKELPARAM(g_clicks[i].x, g_clicks[i].y);
+        printf("[input] click %d,%d at %.1f s -> %p\n", g_clicks[i].x, g_clicks[i].y,
+               (GetTickCount() - g_t0) / 1000.0, (void*)h);
+        fflush(stdout);
+        if (!h) continue;
+        PostMessageA(h, WM_MOUSEMOVE, 0, at);
+        Sleep(100);
+        PostMessageA(h, WM_LBUTTONDOWN, MK_LBUTTON, at);
+        Sleep(100);
+        PostMessageA(h, WM_LBUTTONUP, 0, at);
+    }
+    return 0;
+}
+
+static int click_arg(const char* a) {
+    double s;
+    if (g_nclicks >= MAX_CLICKS ||
+        sscanf(a, "%d,%d@%lf", &g_clicks[g_nclicks].x, &g_clicks[g_nclicks].y, &s) != 3) return 0;
+    g_clicks[g_nclicks++].ms = (DWORD)(s * 1000);
+    return 1;
+}
+
 /* DirectInput8Create checks that its HINSTANCE is a module Windows loaded, and
  * the guest image is not one: it passes GetModuleHandleA(NULL), which is the
  * image base above. Refused, the game carried on with no input object, and
@@ -200,7 +293,10 @@ static void record_close(void) {
 static void shim_SwapBuffers(void) {
     LONG n = InterlockedIncrement(&g_frames);
     if (n == 1 || n == 60 || n % 1000 == 0) printf("[host] frame %ld presented\n", n);
+    if (InterlockedExchange(&g_module_opened, 0)) printf("[host] frame %ld presented after a module load\n", n);
     HDC dc = (HDC)(uintptr_t)ARG(0);
+    HWND rw = WindowFromDC(dc);           /* every frame: the game recreates its window */
+    if (rw) g_render_hwnd = rw;
     if (g_record) record_frame(dc);
     g_eax = SwapBuffers(dc);
     g_esp += 4 + 1 * 4;
@@ -217,6 +313,9 @@ static native32_shim_t g_shims[] = {
     { "GetModuleFileNameA", shim_GetModuleFileNameA },
     { "GetCommandLineA", shim_GetCommandLineA },
     { "DirectInput8Create", shim_DirectInput8Create },
+    { "_AIL_open_stream@12", shim_AIL_open_stream },
+    { "_BinkOpen@8", shim_BinkOpen },
+    { "CreateFileA", shim_CreateFileA },
 };
 
 /* ---- muted by default -------------------------------------------------------
@@ -337,6 +436,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--modeswitch")) g_modeswitch = 1;
         else if (!strcmp(argv[i], "--gamma")) g_gamma = 1;
         else if (!strcmp(argv[i], "--original")) g_original = 1;
+        else if (!strcmp(argv[i], "--click") && i + 1 < argc && click_arg(argv[i + 1])) i++;
         else if (!strcmp(argv[i], "--record") && i + 1 < argc) {
             static char rec_full[MAX_PATH];     /* the run chdirs into game\ */
             GetFullPathNameA(argv[++i], MAX_PATH, rec_full, NULL);
@@ -348,7 +448,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--native-trace")) native32_trace_native = 1;
         else if (!strcmp(argv[i], "--callbacks")) native32_trace_callbacks = 1;
         else {
-            printf("usage: kotor [--run] [--headless] [--sound] [--modeswitch] [--gamma] [--original] [--record out.mp4] [--exe work\\swkotor.exe] [--game game]\n"
+            printf("usage: kotor [--run] [--headless] [--sound] [--modeswitch] [--gamma] [--original] [--record out.mp4] [--click x,y@s]... [--exe work\\swkotor.exe] [--game game]\n"
                    "             [--watchdog S] [--native-trace] [--callbacks]\n");
             recomp_trace_help();
             return argv[i][1] == 'h' || argv[i][2] == 'h' ? 0 : 1;
@@ -371,6 +471,11 @@ int main(int argc, char** argv) {
         }
         printf("  audio: %s\n", sound ? "on (--sound)" : "muted (--sound to hear it)");
         if (g_watchdog_s) CloseHandle(CreateThread(NULL, 0, watchdog, NULL, 0, NULL));
+        g_t0 = GetTickCount();
+        if (g_nclicks) {
+            g_menu_up = CreateEventA(NULL, TRUE, FALSE, NULL);
+            CloseHandle(CreateThread(NULL, 0, input_script, NULL, 0, NULL));
+        }
         return oracle_run(exe_full, KOTOR_IMAGE_BASE, g_shims, (int)(sizeof g_shims / sizeof g_shims[0]), NULL, 0);
     }
 
@@ -398,6 +503,11 @@ int main(int argc, char** argv) {
     }
     printf("  audio: %s\n", sound ? "on (--sound)" : "muted (--sound to hear it)");
     if (g_watchdog_s) CloseHandle(CreateThread(NULL, 0, watchdog, NULL, 0, NULL));
+    g_t0 = GetTickCount();
+    if (g_nclicks) {
+        g_menu_up = CreateEventA(NULL, TRUE, FALSE, NULL);
+        CloseHandle(CreateThread(NULL, 0, input_script, NULL, 0, NULL));
+    }
     printf("  entering 0x%08X\n\n", kotor_entry_va);
     fflush(stdout);
     native32_call_guest(kotor_entry_va, 0, NULL);

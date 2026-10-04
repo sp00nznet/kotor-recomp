@@ -4,8 +4,8 @@
 Two fixed corpora, one pass/fail count each, compared against the committed
 baseline in conformance.json; a regression fails the run:
 
-* **Boot milestones**: a headless, muted run of build/kotor.exe, scored by the
-  lines the host prints at each stage. The original game is the ground truth:
+* **Boot milestones**: a headless, muted run of build/kotor.exe that starts a
+  new game by scripted clicks, scored by the lines the host prints at each stage. The original game is the ground truth:
   each milestone is something it does on every start.
 * **Lift health**: from the generated tree. Lift errors, bodies with no
   terminator, and RECOMP_ITAIL labels that cannot resolve at run time (their
@@ -36,21 +36,41 @@ MILESTONES = [
     ('audio muted', r'audio: muted'),
     ('entry point entered', r'entering 0x006FB38D'),
     ('window created', r'\[host\] CreateWindowExA\('),
+    ('intro movies opened (LucasArts, BioWare, legal)', r'movie .*legal\.bik -> open'),
     ('first frame presented', r'\[host\] frame 1 presented'),
-    ('60 frames presented', r'\[host\] frame 60 presented'),
+    # The main menu starts its theme as a Miles stream; nothing else streams before it.
+    ('main menu music started', r'\[host\] stream .* -> open'),
+    ('1000 frames presented', r'\[host\] frame 1000 presented'),
+    # NEW_GAME below: New Game, Scoundrel, Quick Character, portrait, random name, Play.
+    ('Endar Spire module loaded', r'(?i)\[host\] module .*modules[\\/]end_m01aa\.rim -> open'),
+    # The opening conversation (Trask) loads its lip sync.
+    ('opening conversation started', r'(?i)\[host\] module .*lips[\\/]end_m01aa_loc\.mod -> open'),
+    ('in game: frames presented after the module loaded', None),
 ]
+
+# Clicks on the 800x600 menus, in seconds after the main menu appears
+# (src/runtime/host.c, --click). The screen each one lands on is in
+# docs/testing.md.
+NEW_GAME = ['488,293@3', '180,280@12', '180,280@18', '536,186@25', '555,222@32',
+            '264,485@39', '555,252@46', '272,485@53', '555,283@60']
+
+
+def in_game(out):
+    k = out.lower().find('end_m01aa.rim')
+    return k >= 0 and re.search(r'\[host\] frame \d+ presented', out[k:]) is not None
 
 
 def boot(host, seconds):
     try:
-        p = subprocess.run([host, '--headless', '--run', '--watchdog', str(seconds)],
+        clicks = [a for c in NEW_GAME for a in ('--click', c)]
+        p = subprocess.run([host, '--headless', '--run', '--watchdog', str(seconds)] + clicks,
                            cwd=ROOT, capture_output=True, text=True, errors='replace',
                            timeout=seconds + 60)
         out, code = p.stdout + p.stderr, p.returncode
     except subprocess.TimeoutExpired as e:
         out, code = (e.stdout or '') + (e.stderr or ''), 'timeout'
         out = out if isinstance(out, str) else out.decode(errors='replace')
-    passed = [name for name, pat in MILESTONES if re.search(pat, out)]
+    passed = [name for name, pat in MILESTONES if (re.search(pat, out) if pat else in_game(out))]
     last = [l for l in out.splitlines() if l.startswith(('===', '[not-lifted]', '[watchdog]', 'cannot'))]
     return passed, code, last[:2]
 
@@ -68,7 +88,8 @@ def lift_health():
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--update', action='store_true', help='accept this run as the baseline')
-    ap.add_argument('--seconds', type=int, default=60, help='headless run length')
+    ap.add_argument('--seconds', type=int, default=240,
+                    help='headless run length (the Endar Spire loads about 2 minutes in)')
     ap.add_argument('--host', default=HOST, help='the host to run (default build/kotor.exe)')
     args = ap.parse_args()
     if not (os.path.exists(args.host) and os.path.isdir(os.path.join(ROOT, 'game'))):
