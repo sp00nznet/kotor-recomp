@@ -1,0 +1,5 @@
+# Windows scripts keep CRLF, also in GitHub's ZIP download: cmd.exe misreads
+# LF-only batch files in places (labels, long lines).
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf

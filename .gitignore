@@ -1,0 +1,55 @@
+# Build output
+build/
+build-farm/
+out/
+cmake-build-*/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# IDE
+.vs/
+.vscode/
+*.user
+
+# Python
+__pycache__/
+*.pyc
+
+# --- Retail game files: NOT redistributed (REPO_RULES section 3) ---
+# Star Wars: Knights of the Old Republic (c) 2003 BioWare / LucasArts.
+# Bring your own copy; Setup.cmd links it as game/ (a junction, never a copy).
+game
+original/
+*.exe
+*.EXE
+*.dll
+*.DLL
+*.bif
+*.rim
+*.erf
+*.mod
+*.tlk
+*.key
+*.iso
+*.zip
+
+# Generated from the binary, never committed: the lifted C, the catalog, the
+# unwrapped exe and every other analysis of swkotor.exe.
+src/recomp/gen/
+work/
+analysis/
+scratch/
+
+# Recordings and logs of runs
+*.mp4
+*.log
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Made by Setup.cmd
+KotOR (recomp).cmd
