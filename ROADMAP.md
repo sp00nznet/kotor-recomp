@@ -4,14 +4,16 @@
 
 In order; each is done when its check is in the conformance harness or the docs.
 
-1. **Boot to the first frame.** The lift runs from `WinMainCRTStartup` to a GL
-   context and a presented frame, headless and muted (`tools/conformance.py`).
-2. **Boot to the main menu**, then a new game started and the Endar Spire loaded.
-3. **Headless recording**: `--headless --record out.mp4`, frames read back
-   from the hidden GL window and piped to ffmpeg (REPO_RULES section 10).
-4. **A reference run** of the unwrapped original under offstage, to compare
-   frames and logs against.
-5. **Sound tests.** Every run is muted until then (`--sound` unmutes).
+1. **A new game started** and the Endar Spire loaded, from scripted input on the
+   main menu (the menu itself is reached: README).
+2. **The visible window.** Headless runs reach the menu, but with a shown window the
+   lifted run stalls in window creation (0x004053E0, the window procedure called over
+   and over) while the original does not. Find what differs.
+3. **A main-menu milestone** in the harness, matched on a recorded frame or the game's
+   own log rather than a frame count.
+4. **Sound tests.** Every run is muted until then (`--sound` unmutes).
+5. **Move oracle.c into pcrecomp's native32**: civ3, Red Alert 2 and KotOR each carry
+   a copy.
 
 ## Fixes (the reason for the project)
 

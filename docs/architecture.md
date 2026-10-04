@@ -53,6 +53,14 @@ guest code and is redirected into the lifted body.
   game starts, which covers Miles, Bink and anything else. If muting fails the
   run stops (fail closed). `--sound` turns it off.
 - **Headless.** `--headless` keeps the window hidden and prints message boxes.
-  OpenGL still renders into the hidden window.
+  OpenGL still renders into the hidden window, and `--record out.mp4` reads each frame
+  back with `glReadPixels` before the swap (30 fps, the first frame's size) and pipes it
+  to ffmpeg.
+- **DirectInput gets a real HINSTANCE.** The game passes `GetModuleHandleA(NULL)`, which
+  is the guest image here. `DirectInput8Create` refuses a module Windows didn't load,
+  and the game then crashed in its input manager, the lift and the original alike.
+- **`--original`** (`oracle.c`) runs the unwrapped exe's own code, natively, under the
+  same shims. When the lift and the original fail the same way, the cause is the host
+  or the environment, not the lift. That's how the DirectInput problem was found.
 - **Reports.** Fault reports, a watchdog, and a not-lifted stub that names the
   next function to lift.
