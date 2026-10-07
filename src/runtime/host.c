@@ -250,14 +250,52 @@ static void shim_CreateWindowExA(void) {
     HWND h = CreateWindowExA(ARG(0), (LPCSTR)(uintptr_t)ARG(1), (LPCSTR)(uintptr_t)ARG(2), style,
                              ARG(4), ARG(5), ARG(6), ARG(7), (HWND)(uintptr_t)ARG(8),
                              (HMENU)(uintptr_t)ARG(9), (HINSTANCE)(uintptr_t)ARG(10), (LPVOID)(uintptr_t)ARG(11));
-    printf("[host] CreateWindowExA(\"%s\", %dx%d) -> %p\n",
-           ARG(2) ? (const char*)(uintptr_t)ARG(2) : "", (int)ARG(6), (int)ARG(7), (void*)h);
+    DWORD err = h ? 0 : GetLastError();
+    printf("[host] CreateWindowExA(\"%s\", %dx%d) -> %p (error %lu)\n",
+           ARG(2) ? (const char*)(uintptr_t)ARG(2) : "", (int)ARG(6), (int)ARG(7), (void*)h, err);
+    SetLastError(err);
     g_eax = (uint32_t)(uintptr_t)h;
     g_esp += 4 + 12 * 4;
 }
 
+/* The cinematic backdrop (0x00401B37) paints its window black through GetDC
+ * without checking that the window was created: when it wasn't, GetDC(NULL)
+ * is the whole screen, and a headless run painted the top of the player's
+ * desktop black. Headless, there is no screen to draw on. */
+static void shim_GetDC(void) {
+    HWND w = (HWND)(uintptr_t)ARG(0);
+    g_eax = (g_headless && !w) ? 0 : (uint32_t)(uintptr_t)GetDC(w);
+    g_esp += 4 + 1 * 4;
+}
+
 static void shim_ShowWindow(void) {
     g_eax = g_headless ? 0 : ShowWindow((HWND)(uintptr_t)ARG(0), ARG(1));
+    g_esp += 4 + 2 * 4;
+}
+
+/* Headless means nothing on the player's screen: the game's own SetWindowPos
+ * (HWND_TOPMOST) and SetWindowLongA (WS_VISIBLE, WS_EX_TOPMOST) put a black
+ * window on top of everything that took the player's real clicks. They may
+ * move and size the window, never show, raise or activate it. */
+static void shim_SetWindowPos(void) {
+    UINT flags = ARG(6);
+    if (g_headless) flags = (flags | SWP_NOACTIVATE | SWP_NOZORDER) & ~SWP_SHOWWINDOW;
+    g_eax = SetWindowPos((HWND)(uintptr_t)ARG(0), (HWND)(uintptr_t)ARG(1), (int)ARG(2), (int)ARG(3),
+                         (int)ARG(4), (int)ARG(5), flags);
+    g_esp += 4 + 7 * 4;
+}
+
+static void shim_SetWindowLongA(void) {
+    LONG v = (LONG)ARG(2);
+    if (g_headless && (int)ARG(1) == GWL_STYLE) v &= ~WS_VISIBLE;
+    if (g_headless && (int)ARG(1) == GWL_EXSTYLE) v &= ~WS_EX_TOPMOST;
+    g_eax = (uint32_t)SetWindowLongA((HWND)(uintptr_t)ARG(0), (int)ARG(1), v);
+    g_esp += 4 + 3 * 4;
+}
+
+static void shim_SetCursorPos(void) {
+    int x = (int)ARG(0), y = (int)ARG(1);
+    g_eax = input_set_cursor(x, y) ? TRUE : SetCursorPos(x, y);
     g_esp += 4 + 2 * 4;
 }
 
@@ -403,7 +441,12 @@ static void shim_SwapBuffers(void) {
     if (mod) printf("[host] frame %ld presented after a module load\n", n);
     if (mod == 2) input_area_up();
     HDC dc = (HDC)(uintptr_t)ARG(0);
-    input_on_frame(WindowFromDC(dc));     /* every frame: the game recreates its window */
+    HWND w = WindowFromDC(dc);
+    if (g_headless && w && IsWindowVisible(w)) {   /* the guarantee, whatever showed it */
+        ShowWindow(w, SW_HIDE);
+        printf("[host] headless window %p was visible: hidden\n", (void*)w);
+    }
+    input_on_frame(w);                    /* every frame: the game recreates its window */
     if (g_record && g_record_armed) record_frame(dc);
     g_eax = SwapBuffers(dc);
     g_esp += 4 + 1 * 4;
@@ -412,7 +455,11 @@ static void shim_SwapBuffers(void) {
 static native32_shim_t g_shims[] = {
     { "CreateWindowExA", shim_CreateWindowExA },
     { "ShowWindow", shim_ShowWindow },
+    { "GetDC", shim_GetDC },
     { "MessageBoxA", shim_MessageBoxA },
+    { "SetCursorPos", shim_SetCursorPos },
+    { "SetWindowPos", shim_SetWindowPos },
+    { "SetWindowLongA", shim_SetWindowLongA },
     { "SwapBuffers", shim_SwapBuffers },
     { "wglGetProcAddress", shim_wglGetProcAddress },
     { "wglMakeCurrent", shim_wglMakeCurrent },

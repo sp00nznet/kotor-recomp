@@ -6,6 +6,7 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `tools/conformance.py` keeps the run's whole output in `work\conformance.log`.
 - Saves from headless runs (and `--private-ini` runs) go to `work\saves\`, never into the
   install: every file call the game makes with a `saves\` path is redirected. They are kept
   between runs, so a test can quicksave once and later runs can load it.
@@ -37,6 +38,21 @@ versions follow [SemVer](https://semver.org/).
   ffmpeg, so a run shows what it drew with no display.
 
 ### Fixed
+- Headless runs put a black, topmost area on the player's desktop. KotOR's cinematic
+  backdrop (`0x00401B37`) creates its window from a class it never registers, so creation
+  fails, and then paints `GetDC(NULL)` (the whole screen) black, 1600x1200 from the
+  top-left. The game's `SetWindowPos` also raised and activated the hidden window.
+  Headless now refuses the screen DC and never shows, raises or activates a window, and
+  the game no longer moves the real cursor.
+- Headless input no longer depends on the desktop. Activation was posted to every new game
+  window; the game answers it by resetting its display, which makes a new window, so at the
+  main menu it looped about once a second and clicks landed on windows about to go. It is
+  posted once. The shipping code (`--original`) now takes the scripted New Game click every
+  time (8 of 8, hidden), where before it took it only when Windows let its window take the
+  foreground.
+- The script's clock starts at the first frame after the menu music opens, not at the
+  music: under `--original` the music opens over 12 s before anything is drawn, and clicks
+  went to no window.
 - The LICENSE note on what the MIT grant doesn't cover named the wrong game. It now names
   KotOR and says `game\` is a junction to the install, not a copy.
 - Long recorded runs no longer die at their watchdog with `0xC0000409` and no report. The

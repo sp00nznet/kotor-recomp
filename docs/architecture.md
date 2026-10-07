@@ -59,7 +59,13 @@ guest code and is redirected into the lifted body.
   kept between runs. The redirect covers every file call the game imports that takes a path
   (`CreateFileA`, `FindFirstFileA`, `CreateDirectoryA`, `DeleteFileA`, `MoveFileA`, `CopyFileA`,
   the attribute calls).
-- **Headless.** `--headless` keeps the window hidden and prints message boxes.
+- **Headless.** `--headless` keeps the window hidden and prints message boxes. Nothing may
+  reach the player's screen: the game's `ShowWindow`, `SetWindowPos` (which raises it
+  topmost and activates it) and `SetWindowLongA` (`WS_VISIBLE`, `WS_EX_TOPMOST`) can move and
+  size the window but never show, raise or activate it. `GetDC(NULL)` fails, because the
+  cinematic backdrop paints the screen through it (below). `SetCursorPos` posts the move a
+  shown window would get instead of moving the real cursor. Each frame checks the window is
+  still hidden and hides it if not, logging that it had to.
   OpenGL still renders into the hidden window, and `--record out.mp4` reads each frame
   back with `glReadPixels` before the swap (30 fps, the first frame's size) and pipes it
   to ffmpeg.

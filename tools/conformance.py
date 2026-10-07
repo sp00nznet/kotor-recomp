@@ -70,6 +70,7 @@ def boot(host, seconds):
     except subprocess.TimeoutExpired as e:
         out, code = (e.stdout or '') + (e.stderr or ''), 'timeout'
         out = out if isinstance(out, str) else out.decode(errors='replace')
+    open(os.path.join(ROOT, 'work', 'conformance.log'), 'w', encoding='utf-8').write(out)
     passed = [name for name, pat in MILESTONES if (re.search(pat, out) if pat else in_game(out))]
     last = [l for l in out.splitlines() if l.startswith(('===', '[not-lifted]', '[watchdog]', 'cannot'))]
     return passed, code, last[:2]

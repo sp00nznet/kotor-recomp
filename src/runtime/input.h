@@ -14,6 +14,10 @@ void input_on_directinput(void* di8);
 /* Every presented frame, from the SwapBuffers shim: the window the game draws in. */
 void input_on_frame(void* hwnd);
 
+/* The game's SetCursorPos(x, y) (screen coordinates). Headless: posts the
+ * WM_MOUSEMOVE a shown window would get and returns 1; otherwise 0 (call the real one). */
+int input_set_cursor(int x, int y);
+
 /* The main menu is up (its music opened): the script's clock starts here. */
 void input_menu_up(void);
 

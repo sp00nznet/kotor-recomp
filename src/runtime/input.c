@@ -117,6 +117,10 @@ static void patch_slot(void** vt, int slot, void* fn, void** real) {
     VirtualProtect(&vt[slot], sizeof(void*), old, &old);
 }
 
+static int g_headless_input;
+
+static int g_headless_input;
+
 static HRESULT WINAPI hk_CreateDevice(IDirectInput8A* di, REFGUID g, LPDIRECTINPUTDEVICE8A* out, LPUNKNOWN u) {
     HRESULT hr = g_real_create_device(di, g, out, u);
     if (SUCCEEDED(hr) && out && *out && IsEqualGUID(g, &GUID_SysKeyboard)) {
@@ -148,18 +152,41 @@ static POINT g_cursor = { 400, 300 };       /* client coordinates, top-left orig
 
 /* A hidden window is never activated or focused, and the game keys its world
  * input off WM_SETFOCUS (0x004028C6 -> 0x005EDA10(1, 0)) and WM_ACTIVATEAPP
- * (0x00402951): without them its menus and dialogue took keys but the player
- * would not walk. In a headless run each new game window is told it is the
- * active, focused one, as Windows tells a shown window that has the focus. */
-static int g_headless_input;
+ * (0x00402951). In a headless run the game's first window is told once that it
+ * is the active, focused one. Only once: the game answers an activation by
+ * resetting its display, which makes a new window, and telling each new
+ * window again looped that about once a second at the main menu, so clicks
+ * landed on windows about to be destroyed. */
+
+static HANDLE g_menu_up, g_area_up;
+static volatile LONG g_menu_music;       /* the menu's music opened; its first frame starts the clock */
 
 void input_on_frame(void* hwnd) {
+    if (hwnd && InterlockedExchange(&g_menu_music, 0) && g_menu_up) SetEvent(g_menu_up);
     if (!hwnd || (HWND)hwnd == g_hwnd) return;
     g_hwnd = (HWND)hwnd;
-    if (g_headless_input) {
+    static int told;
+    if (g_headless_input && !told++) {
         PostMessageA(g_hwnd, WM_ACTIVATEAPP, TRUE, 0);
         PostMessageA(g_hwnd, WM_SETFOCUS, 0, 0);
     }
+}
+
+/* When the game warps the cursor (0x005E0960: ClientToScreen, SetCursorPos)
+ * it sets a flag (+0x384) to ignore the position of the WM_MOUSEMOVE that
+ * follows. A hidden window never gets that move, so the flag stayed set until
+ * the next scripted one, and a headless run moved the player's real cursor.
+ * Headless, the host posts the move Windows would have sent instead, and the
+ * real cursor stays where it is. */
+int input_set_cursor(int x, int y) {
+    HWND h = g_hwnd;
+    POINT p = { x, y };
+    if (!g_headless_input) return 0;
+    if (h && ScreenToClient(h, &p)) {
+        g_cursor = p;
+        PostMessageA(h, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
+    }
+    return 1;
 }
 
 static void mouse_move(int x, int y) {
@@ -190,7 +217,6 @@ static void mouse_button(int down) {
 typedef struct { int area; DWORD ms; int kind; int x, y; DWORD dik; } event_t;   /* kind: 0 click, 1 key down, 2 key up */
 static event_t g_ev[MAX_EVENTS];
 static int g_nev;
-static HANDLE g_menu_up, g_area_up;
 
 static const struct { const char* name; DWORD dik; } g_keys[] = {
     { "ESCAPE", DIK_ESCAPE }, { "ESC", DIK_ESCAPE }, { "SPACE", DIK_SPACE }, { "TAB", DIK_TAB },
@@ -254,8 +280,11 @@ static DWORD WINAPI script_thread(LPVOID unused) {
     return 0;
 }
 
+/* The music opens before the menu is drawn: under --original by over 12 s,
+ * and a click posted before the first frame has no window to go to. So the
+ * clock starts at the first frame presented after the music (input_on_frame). */
 void input_menu_up(void) {
-    if (g_menu_up) SetEvent(g_menu_up);
+    InterlockedExchange(&g_menu_music, 1);
 }
 
 void input_area_up(void) {
