@@ -52,9 +52,13 @@ guest code and is redirected into the lifted body.
 - **Muted by default.** The process's own audio session is muted before the
   game starts, which covers Miles, Bink and anything else. If muting fails the
   run stops (fail closed). `--sound` turns it off.
-- **The player's files stay theirs.** KotOR rewrites `swkotor.ini` by itself. Headless runs
-  (and `--private-ini`) redirect it to `work\swkotor.ini`, a fresh copy made at the start of each
-  run, so a test never changes the player's settings and always starts from the same ones.
+- **The player's files stay theirs.** KotOR rewrites `swkotor.ini` by itself and writes saves
+  beside itself. Headless runs (and `--private-ini`) redirect both. The ini goes to
+  `work\swkotor.ini`, a fresh copy made at the start of each run, so a test never changes the
+  player's settings and always starts from the same ones. Any `saves\` path goes to `work\saves\`,
+  kept between runs. The redirect covers every file call the game imports that takes a path
+  (`CreateFileA`, `FindFirstFileA`, `CreateDirectoryA`, `DeleteFileA`, `MoveFileA`, `CopyFileA`,
+  the attribute calls).
 - **Headless.** `--headless` keeps the window hidden and prints message boxes.
   OpenGL still renders into the hidden window, and `--record out.mp4` reads each frame
   back with `glReadPixels` before the swap (30 fps, the first frame's size) and pipes it

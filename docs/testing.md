@@ -68,6 +68,9 @@ ffmpeg -i out.mp4 -vf "fps=1/3,scale=200:-1,tile=8x4" -frames:v 1 sheet.png
 
 ## Keys
 
+A time can repeat: `--key 1@a60..330/6` presses 1 every 6 s from 60 s to 330 s, and
+`--click 400,377@a63..333/12` clicks every 12 s.
+
 `--key NAME@s[:hold_ms]` presses a key (100 ms unless a hold is given); names are A-Z, 0-9,
 F1-F10, SPACE, ESC, TAB, ENTER, LSHIFT, LCTRL, DELETE and the arrows. A time written `a<s>`
 counts from the first frame drawn after an area (`modules\*.rim`) loads, for keys meant for the

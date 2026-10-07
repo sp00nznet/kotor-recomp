@@ -6,6 +6,11 @@ versions follow [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Saves from headless runs (and `--private-ini` runs) go to `work\saves\`, never into the
+  install: every file call the game makes with a `saves\` path is redirected. They are kept
+  between runs, so a test can quicksave once and later runs can load it.
+- Repeating script times: `--key 1@a60..330/6` presses 1 every 6 s from 60 s to 330 s, and the
+  same for `--click`. The script holds up to 1024 events.
 - Headless runs tell the game's window it is active and focused (`WM_ACTIVATEAPP`, `WM_SETFOCUS`),
   as Windows would tell a shown, focused window; the game keys its world input off them.
 - An `ExitProcess` shim prints the code and closes the recording when the game ends itself.

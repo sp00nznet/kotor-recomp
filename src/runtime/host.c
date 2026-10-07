@@ -128,16 +128,76 @@ static volatile LONG g_module_opened;
  * fresh copy, work\swkotor.ini, taken from the game's at start, so every test
  * starts from the same settings and the player's file is never touched. */
 static char g_private_ini[MAX_PATH];
+/* Saves too: the game writes saves\<n> - <name>\ beside itself, and a test that
+ * quicksaves must not add to the player's. Private runs keep theirs in
+ * work\saves\, which is also what lets a test start from a save of its own. */
+static char g_private_saves[MAX_PATH];
 
-static const char* redirect_ini(const char* name) {
-    const char* base = name ? strrchr(name, '\\') : NULL;
+/* The path the game asked for, or its private stand-in. buf holds the result
+ * when it is rebuilt, so each caller passes its own. */
+static const char* redirect(const char* name, char* buf) {
+    if (!name || !g_private_ini[0]) return name;
+    const char* base = strrchr(name, '\\');
     base = base ? base + 1 : name;
-    if (!g_private_ini[0] || !base || _stricmp(base, "swkotor.ini")) return name;
-    return g_private_ini;
+    if (!_stricmp(base, "swkotor.ini")) return g_private_ini;
+    const char* p = name;
+    if (p[0] == '.' && (p[1] == '\\' || p[1] == '/')) p += 2;
+    if (!_strnicmp(p, "saves", 5) && (p[5] == '\\' || p[5] == '/' || p[5] == 0)) {
+        _snprintf(buf, MAX_PATH - 1, "%s%s", g_private_saves, p + 5);
+        buf[MAX_PATH - 1] = 0;
+        static LONG once;
+        if (!InterlockedExchange(&once, 1)) printf("[host] saves -> %s (first: %s)\n", g_private_saves, name);
+        return buf;
+    }
+    return name;
+}
+
+#define PATH_ARG(n, buf) redirect((const char*)(uintptr_t)ARG(n), buf)
+
+static void shim_CreateDirectoryA(void) {
+    char b[MAX_PATH];
+    g_eax = CreateDirectoryA(PATH_ARG(0, b), (LPSECURITY_ATTRIBUTES)(uintptr_t)ARG(1));
+    g_esp += 4 + 2 * 4;
+}
+static void shim_RemoveDirectoryA(void) {
+    char b[MAX_PATH];
+    g_eax = RemoveDirectoryA(PATH_ARG(0, b));
+    g_esp += 4 + 1 * 4;
+}
+static void shim_DeleteFileA(void) {
+    char b[MAX_PATH];
+    g_eax = DeleteFileA(PATH_ARG(0, b));
+    g_esp += 4 + 1 * 4;
+}
+static void shim_GetFileAttributesA(void) {
+    char b[MAX_PATH];
+    g_eax = GetFileAttributesA(PATH_ARG(0, b));
+    g_esp += 4 + 1 * 4;
+}
+static void shim_SetFileAttributesA(void) {
+    char b[MAX_PATH];
+    g_eax = SetFileAttributesA(PATH_ARG(0, b), ARG(1));
+    g_esp += 4 + 2 * 4;
+}
+static void shim_FindFirstFileA(void) {
+    char b[MAX_PATH];
+    g_eax = (uint32_t)(uintptr_t)FindFirstFileA(PATH_ARG(0, b), (LPWIN32_FIND_DATAA)(uintptr_t)ARG(1));
+    g_esp += 4 + 2 * 4;
+}
+static void shim_MoveFileA(void) {
+    char a[MAX_PATH], b[MAX_PATH];
+    g_eax = MoveFileA(PATH_ARG(0, a), PATH_ARG(1, b));
+    g_esp += 4 + 2 * 4;
+}
+static void shim_CopyFileA(void) {
+    char a[MAX_PATH], b[MAX_PATH];
+    g_eax = CopyFileA(PATH_ARG(0, a), PATH_ARG(1, b), ARG(2));
+    g_esp += 4 + 3 * 4;
 }
 
 static void shim_CreateFileA(void) {
-    const char* name = redirect_ini((const char*)(uintptr_t)ARG(0));
+    char rb[MAX_PATH];
+    const char* name = PATH_ARG(0, rb);
     g_eax = (uint32_t)(uintptr_t)CreateFileA(name, ARG(1), ARG(2), (LPSECURITY_ATTRIBUTES)(uintptr_t)ARG(3),
                                              ARG(4), ARG(5), (HANDLE)(uintptr_t)ARG(6));
     size_t n = name ? strlen(name) : 0;
@@ -341,6 +401,14 @@ static native32_shim_t g_shims[] = {
     { "_AIL_open_stream@12", shim_AIL_open_stream },
     { "_BinkOpen@8", shim_BinkOpen },
     { "CreateFileA", shim_CreateFileA },
+    { "CreateDirectoryA", shim_CreateDirectoryA },
+    { "RemoveDirectoryA", shim_RemoveDirectoryA },
+    { "DeleteFileA", shim_DeleteFileA },
+    { "GetFileAttributesA", shim_GetFileAttributesA },
+    { "SetFileAttributesA", shim_SetFileAttributesA },
+    { "FindFirstFileA", shim_FindFirstFileA },
+    { "MoveFileA", shim_MoveFileA },
+    { "CopyFileA", shim_CopyFileA },
 };
 
 /* ---- muted by default -------------------------------------------------------
@@ -510,6 +578,9 @@ int main(int argc, char** argv) {
             return 1;
         }
         printf("  swkotor.ini: a fresh copy at %s\n", g_private_ini);
+        GetFullPathNameA("work\\saves", MAX_PATH, g_private_saves, NULL);
+        CreateDirectoryA(g_private_saves, NULL);   /* kept between runs: a test may load one */
+        printf("  saves: %s\n", g_private_saves);
     }
     _snprintf(g_guest_exe, sizeof g_guest_exe - 1, "%s\\swkotor.exe", game_full);
     _snprintf(g_guest_cmdline, sizeof g_guest_cmdline - 1, "\"%s\"", g_guest_exe);

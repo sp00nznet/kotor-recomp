@@ -186,7 +186,7 @@ static void mouse_button(int down) {
 }
 
 /* ---- the script ---------------------------------------------------------------- */
-#define MAX_EVENTS 128
+#define MAX_EVENTS 1024
 typedef struct { int area; DWORD ms; int kind; int x, y; DWORD dik; } event_t;   /* kind: 0 click, 1 key down, 2 key up */
 static event_t g_ev[MAX_EVENTS];
 static int g_nev;
@@ -218,11 +218,6 @@ static int cmp_event(const void* a, const void* b) {
     return x->ms < y->ms ? -1 : x->ms > y->ms ? 1 : 0;
 }
 
-/* "12.5" from the menu, "a12.5" from the area; returns the anchor, -1 if bad. */
-static int parse_time(const char* s, double* sec) {
-    int area = (*s == 'a' || *s == 'A');
-    return sscanf(s + area, "%lf", sec) == 1 ? area : -1;
-}
 
 static DWORD WINAPI script_thread(LPVOID unused) {
     (void)unused;
@@ -384,12 +379,17 @@ int input_selftest(void) {
         return 1;
     }
 #undef STEP
-    char* a1[] = { "kotor", "--key", "W@a30:3000", "--click", "488,293@3", "--key", "Q@x" };
+    char* a1[] = { "kotor", "--key", "W@a30:3000", "--click", "488,293@3", "--key", "Q@x", "--key", "1@a60..72/6" };
     int n0 = g_nev;
     if (input_arg(7, a1, 1) != 2 || input_arg(7, a1, 3) != 2 || input_arg(7, a1, 5) != 0 ||
         g_nev != n0 + 3 || g_ev[n0].area != 1 || g_ev[n0].ms != 30000 || g_ev[n0 + 1].ms != 33000 ||
         g_ev[n0 + 2].area != 0 || g_ev[n0 + 2].ms != 3000 || g_ev[n0 + 2].x != 488) {
         printf("input selftest: --key/--click parsing\n");
+        return 1;
+    }
+    if (input_arg(9, a1, 7) != 2 || g_nev != n0 + 3 + 6 || g_ev[n0 + 3].ms != 60000 ||
+        g_ev[n0 + 5].ms != 66000 || g_ev[n0 + 7].ms != 72000 || g_ev[n0 + 8].kind != 2) {
+        printf("input selftest: --key range\n");
         return 1;
     }
     g_nev = n0;
@@ -398,38 +398,62 @@ int input_selftest(void) {
 }
 
 /* ---- options -------------------------------------------------------------------- */
+/* A time: "12.5" (seconds after the main menu) or "a12.5" (after the area),
+ * optionally a range "a60..330/6": every 6 s from 60 to 330 inclusive. */
+typedef struct { int area; double from, to, step; } when_t;
+
+static int parse_when(const char* s, when_t* w) {
+    w->area = (*s == 'a' || *s == 'A');
+    s += w->area;
+    const char* dd = strstr(s, "..");         /* split here: %lf would read "60." of "60..72" */
+    char from[32];
+    size_t len = dd ? (size_t)(dd - s) : strlen(s);
+    if (len == 0 || len >= sizeof from) return 0;
+    memcpy(from, s, len);
+    from[len] = 0;
+    if (sscanf(from, "%lf", &w->from) != 1) return 0;
+    if (!dd) { w->to = w->from; w->step = 1; return 1; }
+    return sscanf(dd + 2, "%lf/%lf", &w->to, &w->step) == 2 && w->step > 0 && w->to >= w->from;
+}
+
+static int add_event(event_t e) {
+    if (g_nev >= MAX_EVENTS) { fprintf(stderr, "input: more than %d scripted events\n", MAX_EVENTS); return 0; }
+    g_ev[g_nev++] = e;
+    return 1;
+}
+
 int input_arg(int argc, char** argv, int i) {
     const char* a = argv[i];
-    double s;
     if (!strcmp(a, "--gamepad")) { g_gamepad = 1; return 1; }
     if (!strcmp(a, "--no-gamepad")) { g_gamepad = 0; return 1; }
-    if (i + 1 >= argc || g_nev + 2 > MAX_EVENTS) return 0;
+    if (i + 1 >= argc || (strcmp(a, "--click") && strcmp(a, "--key"))) return 0;
     const char* v = argv[i + 1];
+    const char* at = strchr(v, '@');
+    when_t w;
+    if (!at || !parse_when(at + 1, &w)) return 0;
     if (!strcmp(a, "--click")) {
-        event_t* e = &g_ev[g_nev];
-        const char* at = strchr(v, '@');
-        if (!at || sscanf(v, "%d,%d", &e->x, &e->y) != 2 || (e->area = parse_time(at + 1, &s)) < 0) return 0;
-        e->kind = 0, e->ms = (DWORD)(s * 1000);
-        g_nev++;
+        int x, y;
+        if (sscanf(v, "%d,%d", &x, &y) != 2) return 0;
+        for (double t = w.from; t <= w.to + 1e-9; t += w.step)
+            if (!add_event((event_t){ w.area, (DWORD)(t * 1000), 0, x, y, 0 })) return 0;
         return 2;
     }
-    if (!strcmp(a, "--key")) {
-        const char* at = strchr(v, '@');
-        unsigned hold_ms = 100;
-        DWORD dik = at ? dik_from_name(v, (size_t)(at - v)) : 0;
-        int area = dik ? parse_time(at + 1, &s) : -1;
-        const char* colon = at ? strchr(at, ':') : NULL;
-        if (area < 0 || (colon && sscanf(colon + 1, "%u", &hold_ms) != 1)) return 0;
-        g_ev[g_nev++] = (event_t){ area, (DWORD)(s * 1000), 1, 0, 0, dik };
-        g_ev[g_nev++] = (event_t){ area, (DWORD)(s * 1000) + hold_ms, 2, 0, 0, dik };
-        return 2;
+    unsigned hold_ms = 100;
+    DWORD dik = dik_from_name(v, (size_t)(at - v));
+    const char* colon = strchr(at, ':');
+    if (!dik || (colon && sscanf(colon + 1, "%u", &hold_ms) != 1)) return 0;
+    for (double t = w.from; t <= w.to + 1e-9; t += w.step) {
+        DWORD ms = (DWORD)(t * 1000);
+        if (!add_event((event_t){ w.area, ms, 1, 0, 0, dik }) ||
+            !add_event((event_t){ w.area, ms + hold_ms, 2, 0, 0, dik })) return 0;
     }
-    return 0;
+    return 2;
 }
 
 void input_help(void) {
     printf("  input: [--click x,y@s]... [--key NAME@s[:hold_ms]]... [--gamepad | --no-gamepad]\n"
            "         times are seconds after the main menu appears, or a<seconds> after an area loads;\n"
+           "         a range repeats: 1@a60..330/6 presses 1 every 6 s from 60 to 330\n"
            "         keys: A-Z 0-9 F1-F10 SPACE ESC\n"
            "         TAB ENTER LSHIFT LCTRL DELETE UP DOWN LEFT RIGHT. The pad is on unless --headless.\n");
 }
