@@ -1,6 +1,6 @@
 # KotOR (PC) reconnaissance
 
-Reconnaissance of the Steam copy at `E:\SteamLibrary\steamapps\common\swkotor`,
+Reconnaissance of the Steam copy (`steamapps\common\swkotor`),
 done 2026-10-03 with pcrecomp `origin/main` (1fc3a0a). Nothing has been lifted yet. The Steam DRM is removed (see below).
 
 ## The binary

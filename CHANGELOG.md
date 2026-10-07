@@ -37,6 +37,8 @@ versions follow [SemVer](https://semver.org/).
   ffmpeg, so a run shows what it drew with no display.
 
 ### Fixed
+- The LICENSE note on what the MIT grant doesn't cover named the wrong game. It now names
+  KotOR and says `game\` is a junction to the install, not a copy.
 - Long recorded runs no longer die at their watchdog with `0xC0000409` and no report. The
   watchdog closed the ffmpeg pipe from its own thread while the render thread was writing to it,
   and the C runtime failed fast. The pipe is now locked, and a closed recording stays closed.

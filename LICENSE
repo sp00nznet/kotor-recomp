@@ -23,20 +23,21 @@ SOFTWARE.
 ---
 
 This licence covers what is actually ours in this repository: the setup
-script, the tools, the analysis summaries and the documentation. It does NOT
-cover The Movies itself.
+script, the host runtime, the tools, the analysis summaries and the
+documentation. It does NOT cover Star Wars: Knights of the Old Republic itself.
 
-The Movies and The Movies: Stunts & Effects are (c) 2005-2006 Lionhead
-Studios / Activision, and are not ours to license. Their executables, data,
-movies, music and art are not in this repository and are excluded by
-.gitignore.
+Star Wars: Knights of the Old Republic is (c) 2003 BioWare / LucasArts, and
+Star Wars is a trademark of Lucasfilm Ltd. None of it is ours to license. Its
+executables, data, movies, music and art are not in this repository and are
+excluded by .gitignore.
 
 Two consequences worth being explicit about:
 
-  * You need your own copy of the game to use any of this. Setup.cmd copies
-    your install into game/; the pipeline reads it from there.
+  * You need your own copy of the game to use any of this. Setup.cmd links
+    your install as game/ (a junction, not a copy); the pipeline reads it
+    from there.
 
-  * Unpacked and lifted code is a derivative work of the binary it came from.
+  * Unwrapped and lifted code is a derivative work of the binary it came from.
     Anything this pipeline emits into work/ or src/recomp/gen/ carries whatever
     licence the original carries, not this one. The MIT grant above stops at
     our own work.
