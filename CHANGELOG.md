@@ -37,6 +37,10 @@ versions follow [SemVer](https://semver.org/).
   ffmpeg, so a run shows what it drew with no display.
 
 ### Fixed
+- Long recorded runs no longer die at their watchdog with `0xC0000409` and no report. The
+  watchdog closed the ffmpeg pipe from its own thread while the render thread was writing to it,
+  and the C runtime failed fast. The pipe is now locked, and a closed recording stays closed.
+- `TerminateProcess` on the game's own process is logged with its caller, like `ExitProcess`.
 - Test runs no longer change the player's settings. KotOR rewrites `swkotor.ini` by itself, and
   scripted runs had left it with `Sound Init=0`, `EAX=0` and the movies marked as seen. Headless
   runs (and `--private-ini`) now read and write `work\swkotor.ini`, a fresh copy of the game's

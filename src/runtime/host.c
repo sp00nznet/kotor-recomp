@@ -284,6 +284,7 @@ static void shim_MessageBoxA(void) {
 #define GL_BGRA_EXT 0x80E1
 #define GL_BACK_BUF 0x0405
 static FILE* g_rec_pipe;
+static SRWLOCK g_rec_lock = SRWLOCK_INIT;
 static int g_rec_w, g_rec_h;
 static uint8_t* g_rec_buf;
 static DWORD g_rec_next;
@@ -318,15 +319,39 @@ static void record_frame(HDC dc) {
     if (w != g_rec_w || h != g_rec_h) return;
     if (read_buffer) read_buffer(GL_BACK_BUF);
     read_pixels(0, 0, w, h, GL_BGRA_EXT, 0x1401 /* GL_UNSIGNED_BYTE */, g_rec_buf);
-    fwrite(g_rec_buf, 4, (size_t)w * h, g_rec_pipe);
+    AcquireSRWLockExclusive(&g_rec_lock);
+    if (g_rec_pipe) fwrite(g_rec_buf, 4, (size_t)w * h, g_rec_pipe);
+    ReleaseSRWLockExclusive(&g_rec_lock);
 }
 
+/* From the watchdog's thread as well as the main one. Closing the pipe while
+ * the render thread was inside fwrite on it made the CRT fail fast
+ * (0xC0000409), which ended every long recorded run at its watchdog with no
+ * report: the lock keeps them apart, and a closed recording stays closed. */
 static void record_close(void) {
+    AcquireSRWLockExclusive(&g_rec_lock);
     if (g_rec_pipe) { _pclose(g_rec_pipe); g_rec_pipe = NULL; }
+    g_record = NULL;
+    ReleaseSRWLockExclusive(&g_rec_lock);
 }
 
 /* The game ends itself with ExitProcess, which skips everything the host would
  * do on the way out: the code is printed, stdout flushed, the recording closed. */
+/* The C runtime's abort path ends the process with TerminateProcess, not
+ * ExitProcess; the same report, then the real call. */
+static void shim_TerminateProcess(void) {
+    HANDLE h = (HANDLE)(uintptr_t)ARG(0);
+    UINT code = ARG(1);
+    if (h == GetCurrentProcess() || GetProcessId(h) == GetCurrentProcessId()) {
+        printf("[host] TerminateProcess(self, %u) from sub_%08X\n", code, g_cur_func);
+        fflush(stdout);
+        native32_dump_icalls(8);
+        record_close();
+    }
+    g_eax = TerminateProcess(h, code);
+    g_esp += 4 + 2 * 4;
+}
+
 static void shim_ExitProcess(void) {
     UINT code = ARG(0);
     printf("[host] ExitProcess(%u) from sub_%08X\n", code, g_cur_func);
@@ -392,6 +417,7 @@ static native32_shim_t g_shims[] = {
     { "wglGetProcAddress", shim_wglGetProcAddress },
     { "wglMakeCurrent", shim_wglMakeCurrent },
     { "ExitProcess", shim_ExitProcess },
+    { "TerminateProcess", shim_TerminateProcess },
     { "ChangeDisplaySettingsA", shim_ChangeDisplaySettingsA },
     { "SetDeviceGammaRamp", shim_SetDeviceGammaRamp },
     { "GetModuleHandleA", shim_GetModuleHandleA },

@@ -96,8 +96,13 @@ busy machine, so they are spaced generously:
 ```
 
 That ends in Trask's next tutorial conversation, about the footlocker
-(`docs/screenshots/in-game-hud.png` is the scene just before it). Walking with W is the next
-step to script: the tutorial keeps the player in conversation until it is answered.
+(`docs/screenshots/in-game-hud.png` is the scene just before it). It stops there: the reply
+"1. Okay." is shown and highlighted, but nothing takes it. Neither `1` (held or tapped), Enter,
+Space nor Escape works, and clicking the reply does nothing either. The keys that answered the
+first conversation are the same keys, so the conversation itself is waiting, not the input.
+The likely cause is a tutorial script that pauses the conversation and never resumes it, which
+would make it a lift bug in a script command. Finding it needs the oracle to take the same
+script (ROADMAP).
 
 ## Known gaps
 
