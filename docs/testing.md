@@ -104,6 +104,18 @@ repeat the hint 20 s later until the footlocker is opened. Both the lifted run a
 `--original` answer it and loop that way, so a script ends with the conversation waiting on
 its reply once the keys stop. Opening the footlocker is the next step to script.
 
+A run can start from a quicksave instead (F4 in game saves to `work\saves`). Load Game is
+at 485,323 on the main menu, and the load screen preselects the newest save with Load at
+399,485:
+
+```
+--click 485,323@3 --click 399,485@8       load the quicksave; area times count from its load
+```
+
+In the footlocker room, `A` held 300 ms turns the camera about a tenth of a circle. `E`
+(select next) picks the door first, and the first selection shows a tutorial popup whose OK
+is at 400,351.
+
 ## Known gaps
 
 - Free movement (W/A/S/D) after the tutorial conversations is not scripted or checked yet.
