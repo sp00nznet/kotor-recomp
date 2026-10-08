@@ -38,6 +38,9 @@ versions follow [SemVer](https://semver.org/).
   ffmpeg, so a run shows what it drew with no display.
 
 ### Fixed
+- Trask's footlocker conversation is answered: "1. Okay." ends it, and Trask repeats the
+  hint every 20 s, in the lifted run as in the shipping code. The earlier stall was most likely input
+  lost to the activation loop below. The scripted popup OK clicks repeat, for slow runs.
 - Headless runs put a black, topmost area on the player's desktop. KotOR's cinematic
   backdrop (`0x00401B37`) creates its window from a class it never registers, so creation
   fails, and then paints `GetDC(NULL)` (the whole screen) black, 1600x1200 from the

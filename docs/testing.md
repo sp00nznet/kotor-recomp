@@ -90,22 +90,20 @@ These run on the area clock (`a` times), and the area takes 1-3 minutes to load 
 busy machine, so they are spaced generously:
 
 ```
---key 1@a60 --key 1@a66 ... --key 1@a240   reply 1 to every line of the opening conversation
---click 400,377@a250                       OK on "The ACTIVE QUESTS screen..."
---click 400,315@a256                       OK on "Journal Entry Added"
+--key 1@a60..700/6                    reply 1 to every line, every 6 s
+--click 400,377@a250..310/10          OK on "The ACTIVE QUESTS screen..."
+--click 400,315@a255..315/10          OK on "Journal Entry Added"
 ```
 
-That ends in Trask's next tutorial conversation, about the footlocker
-(`docs/screenshots/in-game-hud.png` is the scene just before it). It stops there: the reply
-"1. Okay." is shown and highlighted, but nothing takes it. Neither `1` (held or tapped), Enter,
-Space nor Escape works, and clicking the reply does nothing either. The keys that answered the
-first conversation are the same keys, so the conversation itself is waiting, not the input.
-The likely cause is a tutorial script that pauses the conversation and never resumes it, which
-would make it a lift bug in a script command. Finding it needs the oracle to take the same
-script (ROADMAP).
+The OK clicks repeat because a slow lifted run can show a popup after a single click went
+by. A click with no popup up lands in the room, and in both builds it did not get in the way.
+
+That reaches Trask's footlocker tutorial (`docs/screenshots/in-game-hud.png` is the scene
+just before it). Its "1. Okay." runs `k_pend_time01`, which ends the conversation and has Trask
+repeat the hint 20 s later until the footlocker is opened. Both the lifted run and
+`--original` answer it and loop that way, so a script ends with the conversation waiting on
+its reply once the keys stop. Opening the footlocker is the next step to script.
 
 ## Known gaps
 
 - Free movement (W/A/S/D) after the tutorial conversations is not scripted or checked yet.
-- Under `--original`, the shipping code does not react to the posted clicks, so scripted runs
-  can't be compared with it yet (ROADMAP).

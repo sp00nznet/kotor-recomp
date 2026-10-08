@@ -4,10 +4,9 @@
 
 In order; each is done when its check is in the conformance harness or the docs.
 
-1. **The footlocker conversation.** The second tutorial conversation shows its reply but
-   takes no input of any kind (docs/testing.md). The suspect is a script command that never
-   resumes a paused conversation. Next: run the same script under `--original`, which now
-   takes scripted clicks, and see whether the shipping code gets past it.
+1. **Open the footlocker.** Trask's footlocker tutorial now answers in both the lifted run
+   and `--original` (docs/testing.md); script selecting and opening the footlocker, and make
+   it a harness milestone.
 2. **Walk on the Endar Spire** with W, then reach the first fight, all as harness milestones.
 3. **The gamepad on a real controller**, then menu navigation by D-pad.
 4. **The visible window.** Headless runs play, but with a shown window the lifted run
