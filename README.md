@@ -19,14 +19,14 @@ gitignored folders (`work/`, `src/recomp/gen/`). Nothing from the game is in thi
 | Stage | State |
 |---|---|
 | P0: pick the build | Steam `swkotor.exe` 1.03 (2004-02-12), SteamStub 2.x wrapped ([RECON.md](docs/RECON.md)) |
-| Reference run | `--original` runs the unwrapped exe's own machine code under the same host and shims, for comparison |
+| Reference run | `--original` runs the unwrapped exe's own machine code under the same host and shims, for comparison. Played by hand through the whole Endar Spire to the escape pod, where it hung (under investigation) |
 | Headless mode | `--headless --record out.mp4`: hidden window, frames read back from GL and piped to ffmpeg; `--click x,y@s` and `--key NAME@s` drive it (the keyboard through a DirectInput hook) |
 | Gamepad | XInput controllers, which the original never supported: sticks, triggers and buttons sent as the game's own keys, cursor and clicks ([gamepad.md](docs/gamepad.md)); untested on a real pad yet |
 | Steam wrapper | removed statically by pcrecomp `drm/steamstub.py` (#46): no Steam, under a second |
 | RTTI | none (built without it); `vtable_scan` finds 233 vtables, 1,852 methods |
 | Function catalog (`disasm32`) | 29,548 functions, 96.6% of `.text`, no IDA (needs pcrecomp #50: the script-command table setup is 7 KB of straight-line code) |
 | Lift (`run_lift.py --all`) | 29,617 functions, 4.2M lines of C, **0 lift errors** |
-| Host (`build/kotor.exe`, 32-bit, pcrecomp `native32`) | builds with MSVC or clang-cl; self-contained (static CRT). Boots through the intro to the main menu, then a scripted new game: character generation, the Endar Spire load, Trask's conversation answered by keys, and play with the HUD, all in lifted code |
+| Host (`build/kotor.exe`, 32-bit, pcrecomp `native32`) | builds with MSVC or clang-cl; self-contained (static CRT). Runs in a shown window on the desktop, to the main menu and back out (the startup deadlock is fixed). Boots through the intro to the main menu, then a scripted new game: character generation, the Endar Spire load, Trask's conversation answered by keys, and play with the HUD, all in lifted code |
 | Conformance harness | `tools/conformance.py`: **11/11** milestones, from boot to the opening conversation on the Endar Spire, lift 0 errors, against `conformance.json`; fails on regression ([testing.md](docs/testing.md)) |
 
 Runs are **muted by default** until sound has been tested (`--sound` unmutes).
