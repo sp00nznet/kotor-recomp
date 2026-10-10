@@ -244,12 +244,29 @@ static void shim_DirectInput8Create(void) {
 static int g_headless;
 static volatile LONG g_frames;
 
+/* A shim runs holding the machine, and a window call can wait on another
+ * thread: creating, showing or moving a window sends that thread's windows
+ * messages and blocks until they are answered. With a shown window, KotOR
+ * creates one on a second thread (0x004053E0) while its main thread waits in a
+ * Sleep loop (0x00405E50); the main thread came back from Sleep, waited for the
+ * machine, and never answered. So the call runs with the machine let go, as
+ * native32's bridge does for every unshimmed import. Arguments are read first;
+ * esp and the last error are put back after. */
+#define UNLOCKED(call) do { uint32_t esp_ = g_esp; \
+    if (g_original) oracle_release(); else mach_leave(); \
+    call; DWORD err_ = GetLastError(); \
+    if (g_original) oracle_take(); else mach_enter(); \
+    g_esp = esp_; SetLastError(err_); } while (0)
+
 static void shim_CreateWindowExA(void) {
     uint32_t style = ARG(3);
     if (g_headless) style &= ~WS_VISIBLE;
-    HWND h = CreateWindowExA(ARG(0), (LPCSTR)(uintptr_t)ARG(1), (LPCSTR)(uintptr_t)ARG(2), style,
-                             ARG(4), ARG(5), ARG(6), ARG(7), (HWND)(uintptr_t)ARG(8),
-                             (HMENU)(uintptr_t)ARG(9), (HINSTANCE)(uintptr_t)ARG(10), (LPVOID)(uintptr_t)ARG(11));
+    uint32_t a[12];
+    for (int i = 0; i < 12; i++) a[i] = ARG(i);
+    HWND h;
+    UNLOCKED(h = CreateWindowExA(a[0], (LPCSTR)(uintptr_t)a[1], (LPCSTR)(uintptr_t)a[2], style,
+                                 a[4], a[5], a[6], a[7], (HWND)(uintptr_t)a[8],
+                                 (HMENU)(uintptr_t)a[9], (HINSTANCE)(uintptr_t)a[10], (LPVOID)(uintptr_t)a[11]));
     DWORD err = h ? 0 : GetLastError();
     printf("[host] CreateWindowExA(\"%s\", %dx%d) -> %p (error %lu)\n",
            ARG(2) ? (const char*)(uintptr_t)ARG(2) : "", (int)ARG(6), (int)ARG(7), (void*)h, err);
@@ -269,7 +286,10 @@ static void shim_GetDC(void) {
 }
 
 static void shim_ShowWindow(void) {
-    g_eax = g_headless ? 0 : ShowWindow((HWND)(uintptr_t)ARG(0), ARG(1));
+    HWND w = (HWND)(uintptr_t)ARG(0);
+    int cmd = (int)ARG(1);
+    g_eax = 0;
+    if (!g_headless) UNLOCKED(g_eax = ShowWindow(w, cmd));
     g_esp += 4 + 2 * 4;
 }
 
@@ -280,8 +300,12 @@ static void shim_ShowWindow(void) {
 static void shim_SetWindowPos(void) {
     UINT flags = ARG(6);
     if (g_headless) flags = (flags | SWP_NOACTIVATE | SWP_NOZORDER) & ~SWP_SHOWWINDOW;
-    g_eax = SetWindowPos((HWND)(uintptr_t)ARG(0), (HWND)(uintptr_t)ARG(1), (int)ARG(2), (int)ARG(3),
-                         (int)ARG(4), (int)ARG(5), flags);
+    uint32_t a[6];
+    for (int i = 0; i < 6; i++) a[i] = ARG(i);
+    BOOL r;
+    UNLOCKED(r = SetWindowPos((HWND)(uintptr_t)a[0], (HWND)(uintptr_t)a[1], (int)a[2], (int)a[3],
+                              (int)a[4], (int)a[5], flags));
+    g_eax = r;
     g_esp += 4 + 7 * 4;
 }
 
@@ -289,7 +313,11 @@ static void shim_SetWindowLongA(void) {
     LONG v = (LONG)ARG(2);
     if (g_headless && (int)ARG(1) == GWL_STYLE) v &= ~WS_VISIBLE;
     if (g_headless && (int)ARG(1) == GWL_EXSTYLE) v &= ~WS_EX_TOPMOST;
-    g_eax = (uint32_t)SetWindowLongA((HWND)(uintptr_t)ARG(0), (int)ARG(1), v);
+    HWND w = (HWND)(uintptr_t)ARG(0);
+    int idx = (int)ARG(1);
+    LONG r;
+    UNLOCKED(r = SetWindowLongA(w, idx, v));
+    g_eax = (uint32_t)r;
     g_esp += 4 + 3 * 4;
 }
 
@@ -307,7 +335,11 @@ static void shim_MessageBoxA(void) {
         uint32_t b = ARG(3) & MB_TYPEMASK;
         g_eax = (b == MB_YESNO || b == MB_YESNOCANCEL) ? IDNO : IDOK;
     } else {
-        g_eax = MessageBoxA((HWND)(uintptr_t)ARG(0), text, cap, ARG(3));
+        HWND w = (HWND)(uintptr_t)ARG(0);
+        UINT type = ARG(3);
+        int r;
+        UNLOCKED(r = MessageBoxA(w, text, cap, type));
+        g_eax = r;
     }
     g_esp += 4 + 4 * 4;
 }

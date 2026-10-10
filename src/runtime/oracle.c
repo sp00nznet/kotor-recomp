@@ -45,6 +45,11 @@ static uint32_t __cdecl shim_dispatch(recomp_func_t fn, uint32_t esp, uint32_t* 
     return r;
 }
 
+/* For a shim's blocking Windows call (host.c UNLOCKED). ponytail: one level;
+ * a window shim reached from inside another shim still holds the outer claim. */
+void oracle_release(void) { LeaveCriticalSection(&g_lock); }
+void oracle_take(void) { EnterCriticalSection(&g_lock); }
+
 /* eax = the shim. [esp] = the caller's return address, arguments above it. */
 static __declspec(naked) void shim_stub(void) {
     __asm {

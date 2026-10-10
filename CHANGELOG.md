@@ -38,6 +38,13 @@ versions follow [SemVer](https://semver.org/).
   ffmpeg, so a run shows what it drew with no display.
 
 ### Fixed
+- With a shown window, the game froze at startup ("not responding") in the lifted run, and
+  `--original` could hang the same way. KotOR creates a window on a second thread (`0x004053E0`)
+  while its main thread waits in a `Sleep` loop (`0x00405E50`). Creating a shown window sends the
+  main thread's windows messages and waits for the answer, but the host's `CreateWindowExA` shim
+  held the machine lock through the call, so the main thread, back from `Sleep`, waited for the
+  lock and never answered. The window shims (`CreateWindowExA`, `ShowWindow`, `SetWindowPos`,
+  `SetWindowLongA`, `MessageBoxA`) now let go of the lock while Windows runs them.
 - Trask's footlocker conversation is answered: "1. Okay." ends it, and Trask repeats the
   hint every 20 s, in the lifted run as in the shipping code. The earlier stall was most likely input
   lost to the activation loop below. The scripted popup OK clicks repeat, for slow runs.

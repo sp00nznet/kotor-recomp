@@ -9,11 +9,8 @@ In order; each is done when its check is in the conformance harness or the docs.
    it a harness milestone.
 2. **Walk on the Endar Spire** with W, then reach the first fight, all as harness milestones.
 3. **The gamepad on a real controller**, then menu navigation by D-pad.
-4. **The visible window.** Headless runs play, but with a shown window the lifted run
-   stalls in window creation (0x004053E0, the window procedure called over and over)
-   while the original does not. Find what differs.
-5. **Sound tests.** Every run is muted until then (`--sound` unmutes).
-6. **Move oracle.c into pcrecomp's native32**: civ3, Red Alert 2 and KotOR each carry
+4. **Sound tests.** Every run is muted until then (`--sound` unmutes).
+5. **Move oracle.c into pcrecomp's native32**: civ3, Red Alert 2 and KotOR each carry
    a copy.
 
 ## Fixes (the reason for the project)
